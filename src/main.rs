@@ -20,7 +20,8 @@ use pragmatic_mt_eval::grader::{
 use pragmatic_mt_eval::providers::amazon::{AmazonTranslateProvider, DEFAULT_AMAZON_BASE_URL};
 use pragmatic_mt_eval::providers::deepl::{DeepLProvider, DEFAULT_DEEPL_BASE_URL};
 use pragmatic_mt_eval::providers::llm_router::{
-    LlmFamily, StreamingLlmConfig, StreamingLlmProvider,
+    LlmFamily, StreamingLlmConfig, StreamingLlmProvider, DEFAULT_OPENROUTER_BASE_URL,
+    DEFAULT_OPENROUTER_MODEL, OPENROUTER_API_KEY_ENV,
 };
 use pragmatic_mt_eval::providers::{
     AzureGenAiTranslatorProvider, AzureStandardNmtProvider, GoogleAdaptiveLlmProvider,
@@ -147,6 +148,7 @@ enum ProviderKind {
     Deepl,
     Amazon,
     Llm,
+    Openrouter,
 }
 
 /// Supported LLM wire formats.
@@ -156,6 +158,7 @@ enum ModelFamily {
     Anthropic,
     Vertex,
     Cohere,
+    Openrouter,
 }
 
 impl ModelFamily {
@@ -165,6 +168,7 @@ impl ModelFamily {
             Self::Anthropic => LlmFamily::Anthropic,
             Self::Vertex => LlmFamily::Vertex,
             Self::Cohere => LlmFamily::Cohere,
+            Self::Openrouter => LlmFamily::OpenRouter,
         }
     }
 
@@ -174,6 +178,7 @@ impl ModelFamily {
             Self::Anthropic => "claude-3-5-sonnet-latest",
             Self::Vertex => "gemini-1.5-flash",
             Self::Cohere => "command-r-plus",
+            Self::Openrouter => DEFAULT_OPENROUTER_MODEL,
         }
     }
 
@@ -183,6 +188,7 @@ impl ModelFamily {
             Self::Anthropic => "ANTHROPIC_API_KEY",
             Self::Vertex => "GOOGLE_API_KEY",
             Self::Cohere => "COHERE_API_KEY",
+            Self::Openrouter => OPENROUTER_API_KEY_ENV,
         }
     }
 }
@@ -195,6 +201,7 @@ impl ProviderKind {
             Self::Deepl => "DEEPL_API_KEY",
             Self::Amazon => "AWS_ACCESS_KEY_ID",
             Self::Llm => "OPENAI_API_KEY",
+            Self::Openrouter => OPENROUTER_API_KEY_ENV,
         }
     }
 }
@@ -234,6 +241,7 @@ fn resolve_base_url(provider: ProviderKind, explicit: Option<String>) -> String 
         ProviderKind::Deepl => DEFAULT_DEEPL_BASE_URL.to_owned(),
         ProviderKind::Amazon => DEFAULT_AMAZON_BASE_URL.to_owned(),
         ProviderKind::Llm => DEFAULT_LLM_BASE_URL.to_owned(),
+        ProviderKind::Openrouter => DEFAULT_OPENROUTER_BASE_URL.to_owned(),
     }
 }
 
@@ -289,8 +297,19 @@ fn build_provider(options: &RunOptions, family: ModelFamily) -> Box<dyn Translat
                 .model
                 .clone()
                 .unwrap_or_else(|| family.default_model().to_owned());
-            let config = StreamingLlmConfig::new(base_url, api_key, model)
+            let mut config = StreamingLlmConfig::new(base_url, api_key, model.clone())
                 .with_family(family.into_llm_family());
+            if family == ModelFamily::Openrouter {
+                config = config.with_provider_id(format!("openrouter:{model}"));
+            }
+            Box::new(StreamingLlmProvider::new(config))
+        }
+        ProviderKind::Openrouter => {
+            let model = options
+                .model
+                .clone()
+                .unwrap_or_else(|| DEFAULT_OPENROUTER_MODEL.to_owned());
+            let config = StreamingLlmConfig::openrouter(api_key, model).with_base_url(base_url);
             Box::new(StreamingLlmProvider::new(config))
         }
     }

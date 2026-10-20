@@ -18,6 +18,13 @@ use crate::schema::{
     CapabilityStatus, CoarseDimensions, EvalTier, TelemetryEnvelope, TranslationRequest,
 };
 
+/// Default endpoint for the OpenRouter OpenAI-compatible API.
+pub const DEFAULT_OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
+/// Default OpenRouter model used when `--model` is omitted.
+pub const DEFAULT_OPENROUTER_MODEL: &str = "openai/gpt-4o-mini";
+/// Environment variable holding the OpenRouter API key.
+pub const OPENROUTER_API_KEY_ENV: &str = "OPENROUTER_API_KEY";
+
 /// Supported hosted LLM wire formats.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum LlmFamily {
@@ -29,6 +36,8 @@ pub enum LlmFamily {
     Vertex,
     #[serde(rename = "cohere")]
     Cohere,
+    #[serde(rename = "openrouter")]
+    OpenRouter,
 }
 
 impl Default for LlmFamily {
@@ -44,8 +53,14 @@ pub struct StreamingLlmConfig {
     pub api_key: String,
     pub model: String,
     pub family: LlmFamily,
+    #[serde(default = "default_provider_id")]
+    pub provider_id: String,
     pub input_cost_per_million_usd: f64,
     pub output_cost_per_million_usd: f64,
+}
+
+fn default_provider_id() -> String {
+    "streaming-llm".to_owned()
 }
 
 impl StreamingLlmConfig {
@@ -60,9 +75,30 @@ impl StreamingLlmConfig {
             api_key: api_key.into(),
             model: model.into(),
             family: LlmFamily::OpenAi,
+            provider_id: default_provider_id(),
             input_cost_per_million_usd: 0.15,
             output_cost_per_million_usd: 0.60,
         }
+    }
+
+    /// Builds an OpenRouter configuration with default pricing.
+    pub fn openrouter(api_key: impl Into<String>, model: impl Into<String>) -> Self {
+        let model = model.into();
+        Self::new(DEFAULT_OPENROUTER_BASE_URL, api_key, model.clone())
+            .with_family(LlmFamily::OpenRouter)
+            .with_provider_id(format!("openrouter:{model}"))
+    }
+
+    /// Overrides the base URL used for requests.
+    pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
+        self.endpoint_base_url = base_url.into();
+        self
+    }
+
+    /// Overrides the stable provider identifier reported in run records.
+    pub fn with_provider_id(mut self, provider_id: impl Into<String>) -> Self {
+        self.provider_id = provider_id.into();
+        self
     }
 
     /// Selects the wire format used by the endpoint.
@@ -111,7 +147,9 @@ impl StreamingLlmProvider {
     fn endpoint(&self) -> String {
         let base = normalize_base_url(&self.config.endpoint_base_url);
         match &self.config.family {
-            LlmFamily::OpenAi | LlmFamily::Cohere => format!("{base}/chat/completions"),
+            LlmFamily::OpenAi | LlmFamily::OpenRouter | LlmFamily::Cohere => {
+                format!("{base}/chat/completions")
+            }
             LlmFamily::Anthropic => format!("{base}/v1/messages"),
             LlmFamily::Vertex => format!(
                 "{base}/v1beta/models/{}:streamGenerateContent?alt=sse",
@@ -127,6 +165,13 @@ impl StreamingLlmProvider {
                 "stream": true,
                 "temperature": 0,
                 "messages": [{"role": "user", "content": prompt}],
+            }),
+            LlmFamily::OpenRouter => json!({
+                "model": self.config.model,
+                "stream": true,
+                "temperature": 0,
+                "messages": [{"role": "user", "content": prompt}],
+                "stream_options": {"include_usage": true},
             }),
             LlmFamily::Cohere => json!({
                 "model": self.config.model,
@@ -150,7 +195,7 @@ impl StreamingLlmProvider {
 #[async_trait]
 impl TranslationProvider for StreamingLlmProvider {
     fn provider_id(&self) -> &str {
-        "streaming-llm"
+        &self.config.provider_id
     }
 
     fn check_capability(&self, _req: &TranslationRequest) -> CapabilityStatus {
@@ -174,6 +219,15 @@ impl TranslationProvider for StreamingLlmProvider {
                     "Authorization",
                     format!("Bearer {}", self.config.api_key),
                 );
+            }
+            LlmFamily::OpenRouter => {
+                builder = builder
+                    .header("Authorization", format!("Bearer {}", self.config.api_key))
+                    .header(
+                        "HTTP-Referer",
+                        "https://github.com/pragmatic-mt-eval/pragmatic-mt-eval",
+                    )
+                    .header("X-Title", "pragmatic-mt-eval");
             }
             LlmFamily::Anthropic => {
                 builder = builder
@@ -387,7 +441,7 @@ fn parse_sse_line(line: &str, family: &LlmFamily) -> Option<ParsedSse> {
     let value: Value = serde_json::from_str(data).ok()?;
 
     let content = match family {
-        LlmFamily::OpenAi => value
+        LlmFamily::OpenAi | LlmFamily::OpenRouter => value
             .pointer("/choices/0/delta/content")
             .and_then(Value::as_str)
             .or_else(|| {
@@ -424,7 +478,7 @@ fn parse_sse_line(line: &str, family: &LlmFamily) -> Option<ParsedSse> {
     .map(str::to_owned);
 
     let (prompt_tokens, completion_tokens) = match family {
-        LlmFamily::OpenAi => (
+        LlmFamily::OpenAi | LlmFamily::OpenRouter => (
             value
                 .pointer("/usage/prompt_tokens")
                 .and_then(Value::as_u64)
@@ -583,5 +637,65 @@ mod tests {
         assert!(body_text.contains("DO NOT USE:"));
         assert!(body_text.contains("USE:"));
         assert!(body_text.contains("Target 5"));
+    }
+
+    #[test]
+    fn openrouter_config_sets_defaults() {
+        let config = StreamingLlmConfig::openrouter("key", "google/gemini-2.0-flash-001");
+        assert_eq!(config.endpoint_base_url, DEFAULT_OPENROUTER_BASE_URL);
+        assert_eq!(config.family, LlmFamily::OpenRouter);
+        assert_eq!(config.provider_id, "openrouter:google/gemini-2.0-flash-001");
+    }
+
+    #[tokio::test]
+    async fn streams_openrouter_content_with_attribution_and_usage() {
+        let server = MockServer::start().await;
+        let sse = concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"בוקר \"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"טוב\"}}]}\n\n",
+            "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":42,\"completion_tokens\":7}}\n\n",
+            "data: [DONE]\n\n",
+        );
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(sse),
+            )
+            .mount(&server)
+            .await;
+
+        let config = StreamingLlmConfig::openrouter("test-key", "openai/gpt-4o-mini")
+            .with_base_url(server.uri());
+        let provider = StreamingLlmProvider::new(config);
+
+        let req = base_request(EvalTier::Tier1DefaultZeroShot);
+        let envelope = provider.translate(&req).await.expect("streamed translation");
+
+        assert_eq!(envelope.payload, "בוקר טוב");
+        assert_eq!(envelope.prompt_tokens, Some(42));
+        assert_eq!(envelope.completion_tokens, Some(7));
+        assert_eq!(provider.provider_id(), "openrouter:openai/gpt-4o-mini");
+
+        let requests = server.received_requests().await.expect("captured requests");
+        let request = requests.first().expect("captured request");
+        let authorization = request
+            .headers
+            .get("authorization")
+            .and_then(|value| value.to_str().ok());
+        assert_eq!(authorization, Some("Bearer test-key"));
+        assert!(request.headers.get("http-referer").is_some());
+        assert!(request.headers.get("x-title").is_some());
+
+        let body: Value = serde_json::from_slice(&request.body).expect("request body is JSON");
+        assert_eq!(
+            body.pointer("/stream_options/include_usage"),
+            Some(&Value::Bool(true))
+        );
+        assert_eq!(
+            body.get("model").and_then(Value::as_str),
+            Some("openai/gpt-4o-mini")
+        );
     }
 }

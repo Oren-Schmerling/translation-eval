@@ -35,5 +35,6 @@ pub use providers::{
     AmazonTranslateProvider, AzureGenAiTranslatorProvider, AzureStandardNmtProvider,
     DeepLProvider, GoogleAdaptiveLlmProvider, GoogleBasicNmtProvider, LlmFamily,
     StreamingLlmConfig, StreamingLlmProvider, TranslationProvider,
+    DEFAULT_OPENROUTER_BASE_URL, DEFAULT_OPENROUTER_MODEL, OPENROUTER_API_KEY_ENV,
 };
 pub use schema::*;

@@ -14,7 +14,10 @@ pub use amazon::AmazonTranslateProvider;
 pub use azure::{AzureGenAiTranslatorProvider, AzureStandardNmtProvider};
 pub use deepl::DeepLProvider;
 pub use gcloud::{GoogleAdaptiveLlmProvider, GoogleBasicNmtProvider};
-pub use llm_router::{LlmFamily, StreamingLlmConfig, StreamingLlmProvider};
+pub use llm_router::{
+    LlmFamily, StreamingLlmConfig, StreamingLlmProvider, DEFAULT_OPENROUTER_BASE_URL,
+    DEFAULT_OPENROUTER_MODEL, OPENROUTER_API_KEY_ENV,
+};
 
 use crate::schema::{CapabilityStatus, Language, TelemetryEnvelope, TranslationRequest};
 

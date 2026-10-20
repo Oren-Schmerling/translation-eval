@@ -61,7 +61,7 @@ works offline with no API keys.
     │   ├── azure.rs                    # Azure standard NMT + generative translator
     │   ├── deepl.rs                    # DeepL REST adapter
     │   ├── amazon.rs                   # Amazon Translate adapter
-    │   └── llm_router.rs               # OpenAI / Anthropic / Vertex / Cohere streaming
+    │   └── llm_router.rs               # OpenAI / Anthropic / Vertex / Cohere / OpenRouter streaming
     └── grader/
         ├── mod.rs
         ├── layer1_anchors.rs           # deterministic lexical compliance
@@ -167,7 +167,7 @@ The compiled dataset contains **720 variants**: 192 Hebrew, 288 Gujarati, and
 
 Choose a provider with `--provider`:
 
-`google-nmt`, `google-adaptive`, `azure-nmt`, `azure-genai`, `deepl`, `amazon`, `llm`.
+`google-nmt`, `google-adaptive`, `azure-nmt`, `azure-genai`, `deepl`, `amazon`, `llm`, `openrouter`.
 
 Common options:
 
@@ -267,6 +267,23 @@ cargo run -- run --provider llm --model-family cohere \
   --output results/cohere.jsonl
 ```
 
+#### OpenRouter
+
+```bash
+export OPENROUTER_API_KEY="..."
+cargo run -- run --provider openrouter \
+  --model google/gemini-2.0-flash-001 \
+  --output results/openrouter-gemini.jsonl
+```
+
+`--model` accepts any OpenRouter model id, whether translation-specific or a
+general LLM. Examples include `openai/gpt-4o-mini`,
+`anthropic/claude-3.5-sonnet`, `google/gemini-2.0-flash-001`, and
+`meta-llama/llama-3.3-70b-instruct`; check the OpenRouter model catalogue for
+the current list. `--provider llm --model-family openrouter` is equivalent, and
+`--base-url` defaults to `https://openrouter.ai/api/v1`. When `--api-key` is
+omitted, the key is read from `OPENROUTER_API_KEY`.
+
 Production defaults when `--base-url` is omitted:
 
 | Provider | Default endpoint |
@@ -276,6 +293,7 @@ Production defaults when `--base-url` is omitted:
 | DeepL | `https://api-free.deepl.com` |
 | Amazon | `https://translate.us-east-1.amazonaws.com` |
 | LLM | `https://api.openai.com/v1` |
+| OpenRouter | `https://openrouter.ai/api/v1` |
 
 API keys can be passed with `--api-key`; otherwise the standard environment
 variables above are used.
