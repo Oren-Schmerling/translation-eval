@@ -96,6 +96,9 @@ enum Command {
         /// Azure region (Azure providers).
         #[arg(long)]
         region: Option<String>,
+        /// Azure Foundry model deployment name (Azure generative provider).
+        #[arg(long)]
+        deployment: Option<String>,
         /// Model name (LLM providers).
         #[arg(long)]
         model: Option<String>,
@@ -237,7 +240,9 @@ fn resolve_base_url(provider: ProviderKind, explicit: Option<String>) -> String 
         ProviderKind::GoogleNmt | ProviderKind::GoogleAdaptive => {
             DEFAULT_GOOGLE_BASE_URL.to_owned()
         }
-        ProviderKind::AzureNmt | ProviderKind::AzureGenai => DEFAULT_AZURE_BASE_URL.to_owned(),
+        ProviderKind::AzureNmt => DEFAULT_AZURE_BASE_URL.to_owned(),
+        ProviderKind::AzureGenai => env_value("AZURE_TRANSLATOR_ENDPOINT")
+            .unwrap_or_else(|| DEFAULT_AZURE_BASE_URL.to_owned()),
         ProviderKind::Deepl => DEFAULT_DEEPL_BASE_URL.to_owned(),
         ProviderKind::Amazon => DEFAULT_AMAZON_BASE_URL.to_owned(),
         ProviderKind::Llm => DEFAULT_LLM_BASE_URL.to_owned(),
@@ -286,8 +291,13 @@ fn build_provider(options: &RunOptions, family: ModelFamily) -> Box<dyn Translat
                 .clone()
                 .or_else(|| env_value("AZURE_TRANSLATOR_REGION"))
                 .unwrap_or_default();
+            let deployment = options
+                .deployment
+                .clone()
+                .or_else(|| env_value("AZURE_TRANSLATOR_DEPLOYMENT"))
+                .unwrap_or_else(|| "gpt-5.4-mini".to_owned());
             Box::new(AzureGenAiTranslatorProvider::new(
-                base_url, api_key, region,
+                base_url, api_key, region, deployment,
             ))
         }
         ProviderKind::Deepl => Box::new(DeepLProvider::new(base_url, api_key)),
@@ -322,6 +332,7 @@ struct RunOptions {
     api_key: Option<String>,
     project_id: Option<String>,
     region: Option<String>,
+    deployment: Option<String>,
     model: Option<String>,
 }
 
@@ -729,6 +740,8 @@ struct RunArgs {
     #[arg(long)]
     region: Option<String>,
     #[arg(long)]
+    deployment: Option<String>,
+    #[arg(long)]
     model: Option<String>,
     #[arg(long, value_enum)]
     model_family: Option<ModelFamily>,
@@ -779,6 +792,7 @@ async fn main() -> Result<()> {
             api_key,
             project_id,
             region,
+            deployment,
             model,
             model_family,
             language,
@@ -793,6 +807,7 @@ async fn main() -> Result<()> {
                 api_key,
                 project_id,
                 region,
+                deployment,
                 model,
                 model_family,
                 language,
@@ -804,6 +819,7 @@ async fn main() -> Result<()> {
                 api_key: args.api_key.clone(),
                 project_id: args.project_id.clone(),
                 region: args.region.clone(),
+                deployment: args.deployment.clone(),
                 model: args.model.clone(),
             };
             run_provider(options, &args).await

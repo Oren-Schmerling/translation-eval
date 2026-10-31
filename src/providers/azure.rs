@@ -125,46 +125,68 @@ impl AzureStandardNmtProvider {
     }
 }
 
-/// Azure generative translation provider with coarse controls and references.
+/// Azure generative translation provider using the `2026-06-06` API.
+///
+/// LLM translation requires a Microsoft Foundry (`AIServices`) resource with a
+/// deployed model. The deployment name is sent as `targets[].deploymentName`.
 #[derive(Debug, Clone)]
 pub struct AzureGenAiTranslatorProvider {
     base_url: String,
     api_key: String,
     region: String,
+    deployment: String,
+    rates: CostRates,
     client: Client,
 }
 
 impl AzureGenAiTranslatorProvider {
-    /// Constructs a generative provider from endpoint, key, and region.
+    /// Constructs a generative provider from endpoint, key, region, and deployment.
     pub fn new(
         base_url: impl Into<String>,
         api_key: impl Into<String>,
         region: impl Into<String>,
+        deployment: impl Into<String>,
     ) -> Self {
         let base_url: String = base_url.into();
+        let deployment: String = deployment.into();
         Self {
             base_url: normalize_base_url(&base_url),
             api_key: api_key.into(),
             region: region.into(),
+            rates: rates_for_deployment(&deployment),
+            deployment,
             client: Client::new(),
         }
     }
 
     fn endpoint(&self) -> String {
-        format!("{}/translate", self.base_url)
+        let base = &self.base_url;
+        if base.ends_with("/translator/text") {
+            format!("{base}/translate")
+        } else if base.contains(".cognitiveservices.azure.com")
+            && !base.contains("/translator/text")
+        {
+            format!("{base}/translator/text/translate")
+        } else {
+            format!("{base}/translate")
+        }
     }
 
-    fn build_body(req: &TranslationRequest) -> Value {
-        let mut object = serde_json::Map::new();
-        object.insert("text".to_owned(), json!(req.source_en));
+    fn build_body(&self, req: &TranslationRequest) -> Value {
+        let mut target = serde_json::Map::new();
+        target.insert(
+            "language".to_owned(),
+            json!(target_language_code(req.lang)),
+        );
+        target.insert("deploymentName".to_owned(), json!(self.deployment));
 
         if req.tier == EvalTier::Tier2ACoarseParams {
             let coarse = req.effective_coarse();
             if let Some(tone) = tone_for_formality(&coarse.formality) {
-                object.insert("tone".to_owned(), json!(tone));
+                target.insert("tone".to_owned(), json!(tone));
             }
             if let Some(gender) = gender_for_coarse(coarse) {
-                object.insert("gender".to_owned(), json!(gender));
+                target.insert("gender".to_owned(), json!(gender));
             }
         }
 
@@ -175,36 +197,31 @@ impl AzureGenAiTranslatorProvider {
                 .take(5)
                 .map(|example| {
                     json!({
-                        "sourceSentence": example.source_en,
-                        "targetSentence": example.target,
+                        "source": example.source_en,
+                        "target": example.target,
                     })
                 })
                 .collect();
 
             if !pairs.is_empty() {
-                object.insert(
-                    "referenceSentenceConfig".to_owned(),
-                    json!({ "referenceSentencePairs": pairs }),
-                );
+                target.insert("referenceTextPairs".to_owned(), json!(pairs));
             }
         }
 
-        Value::Array(vec![Value::Object(object)])
+        json!({
+            "inputs": [{
+                "text": req.source_en,
+                "language": "en",
+                "targets": [Value::Object(target)],
+            }]
+        })
     }
 
-    async fn send_translate(
-        &self,
-        body: &Value,
-        req: &TranslationRequest,
-    ) -> Result<reqwest::Response> {
+    async fn send_translate(&self, body: &Value) -> Result<reqwest::Response> {
         let mut request = self
             .client
             .post(self.endpoint())
-            .query(&[
-                ("api-version", "3.0"),
-                ("to", target_language_code(req.lang)),
-                ("from", "en"),
-            ])
+            .query(&[("api-version", "2026-06-06")])
             .header("Ocp-Apim-Subscription-Key", &self.api_key)
             .json(body);
 
@@ -266,28 +283,36 @@ impl TranslationProvider for AzureGenAiTranslatorProvider {
             );
         }
 
-        let body = Self::build_body(req);
+        let body = self.build_body(req);
 
         let stopwatch = LatencyStopwatch::new();
         let response = self
-            .send_translate(&body, req)
+            .send_translate(&body)
             .await
             .context("Azure generative translator request failed")?;
 
-        let payload = parse_azure_response(response).await?;
+        let parsed = parse_azure_llm_response(response).await?;
         let total_ms = stopwatch.elapsed_ms();
 
-        let prompt_tokens = Some(estimate_tokens(&req.source_en));
-        let completion_tokens = Some(estimate_tokens(&payload));
-
         Ok(bare_response_envelope(
-            payload,
+            parsed.text,
             total_ms,
-            prompt_tokens,
-            completion_tokens,
-            CostRates::zero(),
+            parsed.prompt_tokens,
+            parsed.completion_tokens,
+            self.rates,
             0.0,
         ))
+    }
+}
+
+/// Per-million-token rates for the Foundry deployments supported by Translator.
+fn rates_for_deployment(deployment: &str) -> CostRates {
+    match deployment.trim() {
+        "gpt-5.4-mini" => CostRates::new(0.75, 4.50),
+        "gpt-5.4" => CostRates::new(2.50, 15.00),
+        "gpt-5.2" => CostRates::new(1.75, 14.00),
+        "gpt-5.1" => CostRates::new(1.25, 10.00),
+        _ => CostRates::zero(),
     }
 }
 
@@ -338,6 +363,62 @@ async fn parse_azure_response(response: reqwest::Response) -> Result<String> {
         .context("Azure translation response missing [0].translations[0].text")
 }
 
+struct AzureLlmTranslation {
+    text: String,
+    prompt_tokens: Option<u32>,
+    completion_tokens: Option<u32>,
+}
+
+async fn parse_azure_llm_response(
+    response: reqwest::Response,
+) -> Result<AzureLlmTranslation> {
+    let status = response.status();
+    let value: Value = response
+        .json()
+        .await
+        .context("failed to decode Azure translation response")?;
+
+    if !status.is_success() {
+        bail!("Azure translation API returned {status}: {value}");
+    }
+
+    let translation = value
+        .get("value")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+        .and_then(|item| item.get("translations"))
+        .and_then(Value::as_array)
+        .and_then(|translations| translations.first())
+        .context("Azure translation response missing value[0].translations[0]")?;
+
+    let text = translation
+        .get("text")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .context("Azure translation response missing value[0].translations[0].text")?;
+
+    let token = |name: &str| {
+        translation
+            .get(name)
+            .and_then(Value::as_u64)
+            .map(|value| value as u32)
+    };
+    let instruction = token("instructionTokens").unwrap_or(0);
+    let source = token("sourceTokens").unwrap_or(0);
+    let response_tokens = token("responseTokens").unwrap_or(0);
+    let target = token("targetTokens").unwrap_or(0);
+
+    let prompt_tokens = (instruction + source > 0).then_some(instruction + source);
+    let completion_tokens =
+        (response_tokens + target > 0).then_some(response_tokens + target);
+
+    Ok(AzureLlmTranslation {
+        text,
+        prompt_tokens,
+        completion_tokens,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -374,13 +455,14 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/translate"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-                {"translations": [{"text": "שלום"}]}
-            ])))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "value": [{"translations": [{"text": "שלום"}]}]
+            })))
             .mount(&server)
             .await;
 
-        let provider = AzureGenAiTranslatorProvider::new(server.uri(), "key", "");
+        let provider =
+            AzureGenAiTranslatorProvider::new(server.uri(), "key", "", "gpt-5.4-mini");
         let mut req = request(EvalTier::Tier2ACoarseParams, Language::He);
         req.coarse.formality = "level_1_intimate".to_owned();
         req.coarse.speaker_gender = Some("male".to_owned());
@@ -399,19 +481,28 @@ mod tests {
         assert_eq!(requests.len(), 1);
 
         let body = body_of(&requests);
-        assert_eq!(body[0]["tone"], "informal");
-        assert_eq!(body[0]["gender"], "female");
-        assert_eq!(body[0]["text"], "Hello world");
+        let target = &body["inputs"][0]["targets"][0];
+        assert_eq!(target["tone"], "informal");
+        assert_eq!(target["gender"], "female");
+        assert_eq!(target["language"], "he");
+        assert_eq!(target["deploymentName"], "gpt-5.4-mini");
+        assert_eq!(body["inputs"][0]["text"], "Hello world");
+        assert_eq!(body["inputs"][0]["language"], "en");
 
         let query = requests[0].url.query().unwrap_or_default();
-        assert!(query.contains("to=he"));
-        assert!(query.contains("from=en"));
-        assert!(query.contains("api-version=3.0"));
+        assert!(query.contains("api-version=2026-06-06"));
+        assert!(!query.contains("to="));
+        assert!(!query.contains("from="));
     }
 
     #[test]
     fn genai_tier2a_dialect_is_partially_supported() {
-        let provider = AzureGenAiTranslatorProvider::new("https://example.test", "key", "");
+        let provider = AzureGenAiTranslatorProvider::new(
+            "https://example.test",
+            "key",
+            "",
+            "gpt-5.4-mini",
+        );
         let mut req = request(EvalTier::Tier2ACoarseParams, Language::Vi);
         req.coarse.dialect = Some("southern".to_owned());
 
@@ -434,13 +525,14 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/translate"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-                {"translations": [{"text": "תרגום"}]}
-            ])))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "value": [{"translations": [{"text": "תרגום"}]}]
+            })))
             .mount(&server)
             .await;
 
-        let provider = AzureGenAiTranslatorProvider::new(server.uri(), "key", "eastus");
+        let provider =
+            AzureGenAiTranslatorProvider::new(server.uri(), "key", "eastus", "gpt-5.4-mini");
         let mut req = request(EvalTier::Tier3AFewShotK5Pos, Language::He);
         req.examples = (0..7)
             .map(|index| FewShotExample {
@@ -463,12 +555,12 @@ mod tests {
         assert_eq!(requests.len(), 1);
 
         let body = body_of(&requests);
-        let pairs = body[0]["referenceSentenceConfig"]["referenceSentencePairs"]
+        let pairs = body["inputs"][0]["targets"][0]["referenceTextPairs"]
             .as_array()
             .expect("reference pairs should be an array");
         assert_eq!(pairs.len(), 5);
-        assert_eq!(pairs[0]["sourceSentence"], "source 0");
-        assert_eq!(pairs[4]["targetSentence"], "target 4");
+        assert_eq!(pairs[0]["source"], "source 0");
+        assert_eq!(pairs[4]["target"], "target 4");
         assert_eq!(
             requests[0]
                 .headers
