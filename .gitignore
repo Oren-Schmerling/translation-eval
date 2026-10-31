@@ -27,11 +27,14 @@ rustc-ice-*.txt
 # Evaluation artifacts
 data/compiled/*.json
 data/templates/*.csv
-results/
+data/hf_export/
+results/*
+!results/azure_genai_full_report.md
 *.jsonl
 __pycache__/
 .venv/
 .env
+scripts/upload_to_hf.py
 
 # Keep repository placeholders
 !.gitkeep
