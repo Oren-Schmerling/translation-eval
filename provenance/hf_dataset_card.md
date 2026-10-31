@@ -137,9 +137,9 @@ To use this benchmark with an evaluation harness:
 ## Provenance & Construction
 
 - **Base items**: 36 base source sentences
-- **Script**: `generate_sheets_template.py` generates the curation templates
+- **Script**: `provenance/generate_sheets_template.py` generates the curation templates
 - **Compiler**: Compiles templates into `data/compiled/eval_dataset.json`
-- **Preparation**: `scripts/prepare_hf_dataset.py` exports this dataset card and JSONL/parquet artifacts
+- **Preparation**: `provenance/prepare_hf_dataset.py` exports this dataset card and JSONL/parquet artifacts
 
 ## Intended Use & Limitations
 
