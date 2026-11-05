@@ -17,6 +17,7 @@ pub fn render_markdown(records: &[RunRecord]) -> String {
     let mut out = String::new();
     out.push_str("# Pragmatic MT Evaluation Report\n\n");
 
+    render_glossary(&mut out);
     render_tier1(&mut out, records);
     render_tier2(&mut out, records);
     render_tier2c(&mut out, records);
@@ -24,6 +25,55 @@ pub fn render_markdown(records: &[RunRecord]) -> String {
     render_telemetry(&mut out, records);
 
     out
+}
+
+fn render_glossary(out: &mut String) {
+    out.push_str("## Evaluation Framework & Metric Glossary\n\n");
+    out.push_str(
+        "Before reviewing the results below, refer to this glossary for metric definitions and evaluation tiers:\n\n",
+    );
+    out.push_str("### Core Metrics\n\n");
+    out.push_str("| Metric | Full Name | Definition | Scale / Goal |\n");
+    out.push_str("|---|---|---|---|\n");
+    out.push_str(
+        "| **chrF** | Character F-score | Reference-based n-gram lexical overlap against gold translations and acceptable synonyms. | 0–100 (Higher is better) |\n",
+    );
+    out.push_str(
+        "| **Judge** | LLM Ensemble Score | Average score across independent judges for formality, gender, dialect, and naturalness. | 1.0–5.0 (Higher is better) |\n",
+    );
+    out.push_str(
+        "| **ACR %** | Anchor Compliance Rate | Percentage of translations strictly honoring required lexical anchors without forbidden markers. | 0–100% (Higher is better) |\n",
+    );
+    out.push_str(
+        "| **POR %** | Parameter Override Rate | Percentage of adversarial conflicts where explicit API parameters override misleading source cues. | 0–100% (Higher is better) |\n",
+    );
+    out.push_str(
+        "| **TTFT** | Time To First Token | Latency until first streamed token reaches client. | Milliseconds (Lower is better) |\n",
+    );
+    out.push_str(
+        "| **Total Latency** | End-to-End Latency | Total request duration until stream completion or response return. | Milliseconds (Lower is better) |\n",
+    );
+    out.push_str(
+        "| **Cost / 1k** | Projected Cost | Projected API expenditure per 1,000 requests under uncached and cached token pricing. | USD ($) |\n\n",
+    );
+
+    out.push_str("### Evaluation Tiers\n\n");
+    out.push_str(
+        "- **Tier 1 (Default Zero-Shot)**: Free translation with no pragmatic instructions; reveals default bias and unguided quality.\n",
+    );
+    out.push_str(
+        "- **Tier 2A (Coarse Parameters)**: Explicit formality, speaker/listener gender, and dialect parameters.\n",
+    );
+    out.push_str(
+        "- **Tier 2B (Granular Parameters)**: Fine-grained pronouns, kinship pairs, and interpersonal relationship constraints.\n",
+    );
+    out.push_str(
+        "- **Tier 2C (Adversarial Conflict)**: Tests whether parameter overrides intentionally contradictory source cues.\n",
+    );
+    out.push_str(
+        "- **Tier 3A / 3B / 3C (Few-Shot Adaptation)**: In-context prompts with 5 positive, 20 positive, or 5 contrastive examples.\n\n",
+    );
+    out.push_str("---\n\n");
 }
 
 /// Writes a Markdown report, creating parent directories as needed.
@@ -133,10 +183,13 @@ pub fn percentile(values: &mut [f64], p: f64) -> Option<f64> {
 }
 
 fn render_tier1(out: &mut String, records: &[RunRecord]) {
-    out.push_str("## Table 1: Tier 1 (Default Zero-Shot) Quality & Bias Distribution\n\n");
+    out.push_str("## Table 1: Tier 1 (Default Zero-Shot) Quality & Bias Distribution\n");
+    out.push_str(
+        "*Reveals default register, gender bias, and dialect bias when no pragmatic constraints are supplied.*\n\n",
+    );
     out.push_str(
         "| Provider | Lang | n | Mean chrF | Mean Judge | % Male | % Female | \
-         % L1 Intimate | % L2 Polite | % L3 Honorific | % Northern | % Southern |\n",
+         % L1 Intimate* | % L2 Polite* | % L3 Honorific* | % Northern† | % Southern† |\n",
     );
     out.push_str(
         "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n",
@@ -259,11 +312,17 @@ fn render_tier1(out: &mut String, records: &[RunRecord]) {
             vi_south,
         );
     }
-    out.push('\n');
+    out.push_str(
+        "\n*\\* Gujarati formality registers: Level 1 (intimate), Level 2 (polite), Level 3 (honorific).*  \n\
+         *† Vietnamese regional dialect lexical markers: Northern vs. Southern.*\n\n",
+    );
 }
 
 fn render_tier2(out: &mut String, records: &[RunRecord]) {
-    out.push_str("## Table 2: Tier 2 (Coarse & Granular Parameters) Compliance (ACR %)\n\n");
+    out.push_str("## Table 2: Tier 2 (Coarse & Granular Parameters) Compliance (ACR %)\n");
+    out.push_str(
+        "*Compliance rate against explicit parameter instructions, including unsupported or partially supported provider axes.*\n\n",
+    );
     out.push_str(
         "| Provider | Tier | n | Compliance % | UnsupportedByProvider | \
          PartiallySupported missing axes |\n",
@@ -336,11 +395,16 @@ fn render_tier2(out: &mut String, records: &[RunRecord]) {
             partial,
         );
     }
-    out.push('\n');
+    out.push_str(
+        "\n*Note: Missing axes indicate parameters the provider received but did not honor (e.g. dialect).*\n\n",
+    );
 }
 
 fn render_tier2c(out: &mut String, records: &[RunRecord]) {
-    out.push_str("## Table 3: Tier 2C (Adversarial Conflict) Parameter Override Rate (POR %)\n\n");
+    out.push_str("## Table 3: Tier 2C (Adversarial Conflict) Parameter Override Rate (POR %)\n");
+    out.push_str(
+        "*Frequency with which explicit parameters take precedence over contradictory cues embedded in source text.*\n\n",
+    );
     out.push_str("| Provider | Conflict Requests (n) | Override Hits | POR % |\n");
     out.push_str("|---|---:|---:|---:|\n");
 
@@ -378,7 +442,10 @@ fn render_tier2c(out: &mut String, records: &[RunRecord]) {
 }
 
 fn render_tier3(out: &mut String, records: &[RunRecord]) {
-    out.push_str("## Table 4: Tier 3 (Few-Shot Adaptation) Delta\n\n");
+    out.push_str("## Table 4: Tier 3 (Few-Shot Adaptation) Delta\n");
+    out.push_str(
+        "*Quality improvement gained by supplying in-context demonstration examples (positive and contrastive pairs).*\n\n",
+    );
     out.push_str(
         "| Provider | Tier 1 (Default) chrF | Tier 1 (Default) Judge | \
          Tier 3A (5 Pos) chrF | Tier 3A (5 Pos) Judge | \
@@ -446,11 +513,16 @@ fn render_tier3(out: &mut String, records: &[RunRecord]) {
             fmt_signed(delta(t3c_judge, t3a_judge)),
         );
     }
-    out.push('\n');
+    out.push_str(
+        "\n*Note: Δ columns measure relative improvement; positive delta indicates benefit from prompt demonstrations.*\n\n",
+    );
 }
 
 fn render_telemetry(out: &mut String, records: &[RunRecord]) {
-    out.push_str("## Table 5: Operational Telemetry\n\n");
+    out.push_str("## Table 5: Operational Telemetry\n");
+    out.push_str(
+        "*Latency distributions and operational expenditure projections per 1,000 translation queries.*\n\n",
+    );
     out.push_str(
         "| Provider | n | p50 TTFT (ms) | p95 TTFT (ms) | p50 Total (ms) | \
          p95 Total (ms) | Mean Uncached Cost | Mean Cached Cost | \
@@ -498,7 +570,9 @@ fn render_telemetry(out: &mut String, records: &[RunRecord]) {
             fmt_projected(mean_cached),
         );
     }
-    out.push('\n');
+    out.push_str(
+        "\n*Note: TTFT applies to streaming LLMs; Cost/1k shows projected spend under standard vs cached token rates.*\n\n",
+    );
 }
 
 fn mean_of<I>(values: I) -> Option<f64>
@@ -746,8 +820,9 @@ mod tests {
         }
     }
 
-    fn headings() -> [&'static str; 5] {
+    fn headings() -> [&'static str; 6] {
         [
+            "## Evaluation Framework & Metric Glossary",
             "## Table 1: Tier 1 (Default Zero-Shot) Quality & Bias Distribution",
             "## Table 2: Tier 2 (Coarse & Granular Parameters) Compliance (ACR %)",
             "## Table 3: Tier 2C (Adversarial Conflict) Parameter Override Rate (POR %)",
@@ -828,6 +903,8 @@ mod tests {
         for heading in headings() {
             assert!(markdown.contains(heading), "missing heading: {heading}");
         }
+        assert!(markdown.contains("Anchor Compliance Rate"));
+        assert!(markdown.contains("Parameter Override Rate"));
         assert!(markdown.contains("Tier 2A: Coarse Parameters"));
         assert!(markdown.contains("Tier 2B: Granular Parameters"));
         assert!(markdown.contains("prov-x"));
