@@ -1,6 +1,6 @@
 # Pragmatic MT Evaluation Report
 
-## Table 1: Tier 1 Default Quality & Bias Distribution
+## Table 1: Tier 1 (Default Zero-Shot) Quality & Bias Distribution
 
 | Provider | Lang | n | Mean chrF | Mean Judge | % Male | % Female | % L1 Intimate | % L2 Polite | % L3 Honorific | % Northern | % Southern |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -8,21 +8,21 @@
 | azure-genai-translator | he | 192 | 47.741 | n/a | 83.3% | 16.7% | n/a | n/a | n/a | n/a | n/a |
 | azure-genai-translator | vi | 240 | 40.803 | n/a | 52.6% | 47.4% | n/a | n/a | n/a | 80.6% | 19.4% |
 
-## Table 2: Tier 2 Parameter Compliance (ACR %)
+## Table 2: Tier 2 (Coarse & Granular Parameters) Compliance (ACR %)
 
 | Provider | Tier | n | Compliance % | UnsupportedByProvider | PartiallySupported missing axes |
 |---|---|---:|---:|---|---|
-| azure-genai-translator | Tier2ACoarseParams | 720 | 24.3% | 0 | 240 (dialect) |
+| azure-genai-translator | Tier 2A: Coarse Parameters | 720 | 24.3% | 0 | 240 (dialect) |
 
-## Table 3: Tier 2C Adversarial Parameter Override Rate (POR %)
+## Table 3: Tier 2C (Adversarial Conflict) Parameter Override Rate (POR %)
 
 | Provider | Conflict Requests (n) | Override Hits | POR % |
 |---|---:|---:|---:|
 | n/a | n/a | n/a | n/a |
 
-## Table 4: Tier 3 Few-Shot Adaptation Delta
+## Table 4: Tier 3 (Few-Shot Adaptation) Delta
 
-| Provider | Tier1 chrF | Tier1 Judge | Tier3A chrF | Tier3A Judge | Tier3B chrF | Tier3B Judge | Tier3C chrF | Tier3C Judge | Δ chrF 1→3A | Δ Judge 1→3A | Δ chrF 3A→3B | Δ Judge 3A→3B | Δ chrF 3A→3C | Δ Judge 3A→3C |
+| Provider | Tier 1 (Default) chrF | Tier 1 (Default) Judge | Tier 3A (5 Pos) chrF | Tier 3A (5 Pos) Judge | Tier 3B (20 Pos) chrF | Tier 3B (20 Pos) Judge | Tier 3C (5 Contrastive) chrF | Tier 3C (5 Contrastive) Judge | Δ chrF 1→3A | Δ Judge 1→3A | Δ chrF 3A→3B | Δ Judge 3A→3B | Δ chrF 3A→3C | Δ Judge 3A→3C |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | azure-genai-translator | 40.784 | n/a | 47.291 | n/a | n/a | n/a | n/a | n/a | +6.51 | n/a | n/a | n/a | n/a | n/a |
 

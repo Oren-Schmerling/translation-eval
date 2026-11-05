@@ -104,6 +104,19 @@ impl EvalTier {
         }
     }
 
+    /// Human-readable descriptive name used in documentation and reports.
+    pub fn descriptive_name(self) -> &'static str {
+        match self {
+            Self::Tier1DefaultZeroShot => "Tier 1: Default Zero-Shot",
+            Self::Tier2ACoarseParams => "Tier 2A: Coarse Parameters",
+            Self::Tier2BGranularParams => "Tier 2B: Granular Parameters",
+            Self::Tier2CAdversarialConflict => "Tier 2C: Adversarial Conflict",
+            Self::Tier3AFewShotK5Pos => "Tier 3A: Few-Shot (5 Positive)",
+            Self::Tier3BFewShotK20Pos => "Tier 3B: Few-Shot (20 Positive)",
+            Self::Tier3CFewShotK5Contrastive => "Tier 3C: Few-Shot (5 Contrastive)",
+        }
+    }
+
     /// Whether the tier supplies few-shot examples in the prompt.
     pub fn is_few_shot(self) -> bool {
         matches!(

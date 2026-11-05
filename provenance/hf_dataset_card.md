@@ -99,15 +99,15 @@ The `eval_dataset.json` file is a byte-for-byte copy of `data/compiled/eval_data
 
 ## Evaluation Tiers
 
-| Tier | Name | Description |
-|------|------|-------------|
-| 1 | `Tier1DefaultZeroShot` | Free translation with no pragmatic instruction. Reveals default register, gender bias, and dialect bias. |
-| 2A | `Tier2ACoarseParams` | Explicit formality, speaker gender, listener gender, and dialect parameters. |
-| 2B | `Tier2BGranularParams` | Fine-grained pronoun tier, kinship pair, and relationship constraints. |
-| 2C | `Tier2CAdversarialConflict` | Source cues conflict with API parameters; the parameters must override the cues. |
-| 3A | `Tier3AFewShotK5Pos` | Five positive in-language examples in the prompt. |
-| 3B | `Tier3BFewShotK20Pos` | Twenty positive examples for stronger in-context adaptation. |
-| 3C | `Tier3CFewShotK5Contrastive` | Five contrastive example pairs (correct target plus an explicitly rejected alternative). |
+| Tier | Name | Shorthand | Description |
+|------|------|-----------|-------------|
+| 1 | Default Zero-Shot | `Tier1DefaultZeroShot` | Free translation with no pragmatic instruction. Reveals default register, gender bias, and dialect bias. |
+| 2A | Coarse Parameters | `Tier2ACoarseParams` | Explicit formality, speaker gender, listener gender, and dialect parameters. |
+| 2B | Granular Parameters | `Tier2BGranularParams` | Fine-grained pronoun tier, kinship pair, and relationship constraints. |
+| 2C | Adversarial Conflict | `Tier2CAdversarialConflict` | Source cues conflict with API parameters; the parameters must override the cues. |
+| 3A | Few-Shot (5 Positive) | `Tier3AFewShotK5Pos` | Five positive in-language examples in the prompt. |
+| 3B | Few-Shot (20 Positive) | `Tier3BFewShotK20Pos` | Twenty positive examples for stronger in-context adaptation. |
+| 3C | Few-Shot (5 Contrastive) | `Tier3CFewShotK5Contrastive` | Five contrastive example pairs (correct target plus an explicitly rejected alternative). |
 
 ## Usage
 

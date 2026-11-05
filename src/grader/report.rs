@@ -133,7 +133,7 @@ pub fn percentile(values: &mut [f64], p: f64) -> Option<f64> {
 }
 
 fn render_tier1(out: &mut String, records: &[RunRecord]) {
-    out.push_str("## Table 1: Tier 1 Default Quality & Bias Distribution\n\n");
+    out.push_str("## Table 1: Tier 1 (Default Zero-Shot) Quality & Bias Distribution\n\n");
     out.push_str(
         "| Provider | Lang | n | Mean chrF | Mean Judge | % Male | % Female | \
          % L1 Intimate | % L2 Polite | % L3 Honorific | % Northern | % Southern |\n",
@@ -263,7 +263,7 @@ fn render_tier1(out: &mut String, records: &[RunRecord]) {
 }
 
 fn render_tier2(out: &mut String, records: &[RunRecord]) {
-    out.push_str("## Table 2: Tier 2 Parameter Compliance (ACR %)\n\n");
+    out.push_str("## Table 2: Tier 2 (Coarse & Granular Parameters) Compliance (ACR %)\n\n");
     out.push_str(
         "| Provider | Tier | n | Compliance % | UnsupportedByProvider | \
          PartiallySupported missing axes |\n",
@@ -278,7 +278,10 @@ fn render_tier2(out: &mut String, records: &[RunRecord]) {
         )
     }) {
         groups
-            .entry((record.provider_id.clone(), record.tier.label().to_owned()))
+            .entry((
+                record.provider_id.clone(),
+                record.tier.descriptive_name().to_owned(),
+            ))
             .or_default()
             .push(record);
     }
@@ -337,7 +340,7 @@ fn render_tier2(out: &mut String, records: &[RunRecord]) {
 }
 
 fn render_tier2c(out: &mut String, records: &[RunRecord]) {
-    out.push_str("## Table 3: Tier 2C Adversarial Parameter Override Rate (POR %)\n\n");
+    out.push_str("## Table 3: Tier 2C (Adversarial Conflict) Parameter Override Rate (POR %)\n\n");
     out.push_str("| Provider | Conflict Requests (n) | Override Hits | POR % |\n");
     out.push_str("|---|---:|---:|---:|\n");
 
@@ -375,10 +378,12 @@ fn render_tier2c(out: &mut String, records: &[RunRecord]) {
 }
 
 fn render_tier3(out: &mut String, records: &[RunRecord]) {
-    out.push_str("## Table 4: Tier 3 Few-Shot Adaptation Delta\n\n");
+    out.push_str("## Table 4: Tier 3 (Few-Shot Adaptation) Delta\n\n");
     out.push_str(
-        "| Provider | Tier1 chrF | Tier1 Judge | Tier3A chrF | Tier3A Judge | \
-         Tier3B chrF | Tier3B Judge | Tier3C chrF | Tier3C Judge | \
+        "| Provider | Tier 1 (Default) chrF | Tier 1 (Default) Judge | \
+         Tier 3A (5 Pos) chrF | Tier 3A (5 Pos) Judge | \
+         Tier 3B (20 Pos) chrF | Tier 3B (20 Pos) Judge | \
+         Tier 3C (5 Contrastive) chrF | Tier 3C (5 Contrastive) Judge | \
          Δ chrF 1→3A | Δ Judge 1→3A | Δ chrF 3A→3B | Δ Judge 3A→3B | \
          Δ chrF 3A→3C | Δ Judge 3A→3C |\n",
     );
@@ -743,10 +748,10 @@ mod tests {
 
     fn headings() -> [&'static str; 5] {
         [
-            "## Table 1: Tier 1 Default Quality & Bias Distribution",
-            "## Table 2: Tier 2 Parameter Compliance (ACR %)",
-            "## Table 3: Tier 2C Adversarial Parameter Override Rate (POR %)",
-            "## Table 4: Tier 3 Few-Shot Adaptation Delta",
+            "## Table 1: Tier 1 (Default Zero-Shot) Quality & Bias Distribution",
+            "## Table 2: Tier 2 (Coarse & Granular Parameters) Compliance (ACR %)",
+            "## Table 3: Tier 2C (Adversarial Conflict) Parameter Override Rate (POR %)",
+            "## Table 4: Tier 3 (Few-Shot Adaptation) Delta",
             "## Table 5: Operational Telemetry",
         ]
     }
@@ -823,6 +828,8 @@ mod tests {
         for heading in headings() {
             assert!(markdown.contains(heading), "missing heading: {heading}");
         }
+        assert!(markdown.contains("Tier 2A: Coarse Parameters"));
+        assert!(markdown.contains("Tier 2B: Granular Parameters"));
         assert!(markdown.contains("prov-x"));
         assert!(markdown.contains("# Pragmatic MT Evaluation Report"));
     }
