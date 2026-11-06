@@ -1,0 +1,14 @@
+{
+  "name": "translation-eval",
+  "version": "0.1.0",
+  "description": "Pragmatic MT Evaluation Harness",
+  "type": "module",
+  "scripts": {
+    "probe": "bun run src/cli.ts --probe-only",
+    "eval": "bun run src/cli.ts",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.0"
+  }
+}

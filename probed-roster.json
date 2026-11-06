@@ -1,0 +1,241 @@
+{
+  "timestamp": "2026-11-06T22:55:47.157Z",
+  "ai_studio": {
+    "unlocked_stream": [
+      "gemma-4-26b-a4b-it"
+    ],
+    "unlocked_batch": [],
+    "failed": [
+      {
+        "model": "gemini-4-argon",
+        "error": "HTTP 429: {\n  \"error\": {\n    \"code\": 429,\n    \"message\": \"You exceeded your current quota, please check your p"
+      },
+      {
+        "model": "gemini-3.8-pro",
+        "error": "HTTP 404: {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"models/gemini-3.8-pro is not found for API version v"
+      },
+      {
+        "model": "gemini-3.8-flash",
+        "error": "HTTP 503: {\n  \"error\": {\n    \"code\": 503,\n    \"message\": \"This model is currently experiencing high demand. Sp"
+      },
+      {
+        "model": "gemini-3.8-flash-lite",
+        "error": "HTTP 404: {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"models/gemini-3.8-flash-lite is not found for API ve"
+      },
+      {
+        "model": "gemma-4-31b-it",
+        "error": "The operation timed out."
+      },
+      {
+        "model": "gemini-3.7-flash",
+        "error": "The operation timed out."
+      }
+    ]
+  },
+  "openrouter": {
+    "fallbacks": [
+      "google/gemma-4-31b-it"
+    ],
+    "ceiling_model": "anthropic/claude-sonnet-5.5:batch",
+    "contenders": [
+      "anthropic/claude-haiku-5.5:batch",
+      "deepseek/deepseek-v4.1-flash:batch",
+      "qwen/qwen3.8-flash",
+      "qwen/qwen3.8-27b",
+      "z-ai/glm-5.3-flash:batch",
+      "minimax/minimax-m3.1-flash"
+    ],
+    "free_models": [
+      "nvidia/nemotron-3.5-lightning:free",
+      "cohere/north-mini-code:free",
+      "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "tencent/hy3:free"
+    ],
+    "mt_specialists": [
+      "tencent/hy-mt2-30b-a3b",
+      "tencent/hy-mt2-7b",
+      "tencent/hy-mt2-1.8b"
+    ]
+  },
+  "active_roster": [
+    {
+      "id": "google-ai-studio:gemma-4-26b-a4b-it",
+      "modelSlug": "gemma-4-26b-a4b-it",
+      "provider": "google-ai-studio",
+      "mode": "stream",
+      "bucket": "ai_studio",
+      "pricing": {
+        "inputPerM": 0.15,
+        "outputPerM": 0.6
+      }
+    },
+    {
+      "id": "openrouter:anthropic/claude-sonnet-5.5:batch",
+      "modelSlug": "anthropic/claude-sonnet-5.5:batch",
+      "provider": "openrouter",
+      "mode": "batch",
+      "bucket": "ceiling",
+      "pricing": {
+        "inputPerM": 1,
+        "outputPerM": 5,
+        "cachedReadPerM": 0.1
+      },
+      "isExpensive": true
+    },
+    {
+      "id": "openrouter:google/gemma-4-31b-it",
+      "modelSlug": "google/gemma-4-31b-it",
+      "provider": "openrouter",
+      "mode": "stream",
+      "bucket": "fallback",
+      "pricing": {
+        "inputPerM": 0.19999999999999998,
+        "outputPerM": 0.39999999999999997
+      },
+      "isExpensive": false
+    },
+    {
+      "id": "openrouter:anthropic/claude-haiku-5.5:batch",
+      "modelSlug": "anthropic/claude-haiku-5.5:batch",
+      "provider": "openrouter",
+      "mode": "batch",
+      "bucket": "contender",
+      "pricing": {
+        "inputPerM": 0.049999999999999996,
+        "outputPerM": 0.25
+      }
+    },
+    {
+      "id": "openrouter:deepseek/deepseek-v4.1-flash:batch",
+      "modelSlug": "deepseek/deepseek-v4.1-flash:batch",
+      "provider": "openrouter",
+      "mode": "batch",
+      "bucket": "contender",
+      "pricing": {
+        "inputPerM": 0.112,
+        "outputPerM": 0.33599999999999997
+      }
+    },
+    {
+      "id": "openrouter:qwen/qwen3.8-flash",
+      "modelSlug": "qwen/qwen3.8-flash",
+      "provider": "openrouter",
+      "mode": "stream",
+      "bucket": "contender",
+      "pricing": {
+        "inputPerM": 0.15,
+        "outputPerM": 0.47
+      }
+    },
+    {
+      "id": "openrouter:qwen/qwen3.8-27b",
+      "modelSlug": "qwen/qwen3.8-27b",
+      "provider": "openrouter",
+      "mode": "stream",
+      "bucket": "contender",
+      "pricing": {
+        "inputPerM": 0.15,
+        "outputPerM": 1.875
+      }
+    },
+    {
+      "id": "openrouter:z-ai/glm-5.3-flash:batch",
+      "modelSlug": "z-ai/glm-5.3-flash:batch",
+      "provider": "openrouter",
+      "mode": "batch",
+      "bucket": "contender",
+      "pricing": {
+        "inputPerM": 0.049999999999999996,
+        "outputPerM": 0.18
+      }
+    },
+    {
+      "id": "openrouter:minimax/minimax-m3.1-flash",
+      "modelSlug": "minimax/minimax-m3.1-flash",
+      "provider": "openrouter",
+      "mode": "stream",
+      "bucket": "contender",
+      "pricing": {
+        "inputPerM": 0.075,
+        "outputPerM": 0.3
+      }
+    },
+    {
+      "id": "openrouter:tencent/hy-mt2-30b-a3b",
+      "modelSlug": "tencent/hy-mt2-30b-a3b",
+      "provider": "openrouter",
+      "mode": "stream",
+      "bucket": "mt_specialist",
+      "pricing": {
+        "inputPerM": 0.074,
+        "outputPerM": 0.295
+      }
+    },
+    {
+      "id": "openrouter:tencent/hy-mt2-7b",
+      "modelSlug": "tencent/hy-mt2-7b",
+      "provider": "openrouter",
+      "mode": "stream",
+      "bucket": "mt_specialist",
+      "pricing": {
+        "inputPerM": 0.074,
+        "outputPerM": 0.295
+      }
+    },
+    {
+      "id": "openrouter:tencent/hy-mt2-1.8b",
+      "modelSlug": "tencent/hy-mt2-1.8b",
+      "provider": "openrouter",
+      "mode": "stream",
+      "bucket": "mt_specialist",
+      "pricing": {
+        "inputPerM": 0.044,
+        "outputPerM": 0.17700000000000002
+      }
+    },
+    {
+      "id": "openrouter:nvidia/nemotron-3.5-lightning:free",
+      "modelSlug": "nvidia/nemotron-3.5-lightning:free",
+      "provider": "openrouter",
+      "mode": "free_queue",
+      "bucket": "free",
+      "pricing": {
+        "inputPerM": 0,
+        "outputPerM": 0
+      }
+    },
+    {
+      "id": "openrouter:cohere/north-mini-code:free",
+      "modelSlug": "cohere/north-mini-code:free",
+      "provider": "openrouter",
+      "mode": "free_queue",
+      "bucket": "free",
+      "pricing": {
+        "inputPerM": 0,
+        "outputPerM": 0
+      }
+    },
+    {
+      "id": "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
+      "modelSlug": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "provider": "openrouter",
+      "mode": "free_queue",
+      "bucket": "free",
+      "pricing": {
+        "inputPerM": 0,
+        "outputPerM": 0
+      }
+    },
+    {
+      "id": "openrouter:tencent/hy3:free",
+      "modelSlug": "tencent/hy3:free",
+      "provider": "openrouter",
+      "mode": "free_queue",
+      "bucket": "free",
+      "pricing": {
+        "inputPerM": 0,
+        "outputPerM": 0
+      }
+    }
+  ]
+}
