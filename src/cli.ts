@@ -2,8 +2,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
 import { probeAndResolveRoster } from './discovery/model-prober';
-import { GoogleAiStudioRunner } from './providers/google-ai-studio';
-import { GoogleBatchRunner } from './providers/google-batch';
 import { OpenRouterRunner } from './providers/openrouter';
 import { OpenRouterFreeQueue } from './providers/openrouter-free-queue';
 import { buildRequestsForSuite, loadDataset } from './suite';
@@ -52,45 +50,27 @@ function parseArgs() {
 
 function printRoutingTable(roster: ProbedRoster) {
   console.log('\n========================================================================================');
-  console.log('                          PRAGMATIC MT BENCHMARK ROUTING TABLE                          ');
+  console.log('                 PRAGMATIC MT BENCHMARK ROUTING TABLE (OPENROUTER ONLY)                 ');
   console.log('========================================================================================');
 
-  console.log('\n[A] Google AI Studio Models (Direct Execution)');
-  if (roster.ai_studio.unlocked_batch.length === 0 && roster.ai_studio.unlocked_stream.length === 0) {
-    console.log('  (none unlocked on current plan)');
-  }
-  for (const m of roster.ai_studio.unlocked_batch) console.log(`  - ${m} [AI_STUDIO_BATCH] (50% discount)`);
-  for (const m of roster.ai_studio.unlocked_stream) console.log(`  - ${m} [AI_STUDIO_STREAM] (15 RPM rate-limited)`);
-
-  console.log('\n[B] Google Models Falling Back to OpenRouter');
-  if (roster.openrouter.fallbacks.length === 0) {
-    console.log('  (none routed)');
-  }
-  for (const m of roster.openrouter.fallbacks) console.log(`  - ${m}`);
-
-  console.log('\n[C] Single Expensive Ceiling Model (Max 1 Budget Cap)');
+  console.log('\n[A] Single Expensive Ceiling Model (Max 1 Budget Cap)');
   if (roster.openrouter.ceiling_model) {
     console.log(`  - ${roster.openrouter.ceiling_model}`);
   } else {
     console.log('  (none selected)');
   }
 
-  console.log('\n[D1] High-Promise Low-Cost Contenders (Prefer :batch)');
+  console.log('\n[B] High-Promise Low-Cost Contenders (Prefer :batch)');
   if (roster.openrouter.contenders.length === 0) {
     console.log('  (none)');
   }
   for (const m of roster.openrouter.contenders) console.log(`  - ${m}`);
 
-  console.log('\n[D2] Bucket 3B — Dedicated MT Specialists (tencent/hy-mt2-*)');
+  console.log('\n[C] Bucket 3B — Dedicated MT Specialists (tencent/hy-mt2-*)');
   if (!roster.openrouter.mt_specialists || roster.openrouter.mt_specialists.length === 0) {
     console.log('  (none)');
   } else {
     for (const m of roster.openrouter.mt_specialists) console.log(`  - ${m}`);
-  }
-
-  if (roster.openrouter.free_models && roster.openrouter.free_models.length > 0) {
-    console.log('\n[E] Verified OpenRouter :free Models');
-    for (const m of roster.openrouter.free_models) console.log(`  - ${m}`);
   }
 
   console.log('\n========================================================================================');
@@ -140,11 +120,9 @@ async function main() {
   const { probeOnly, preferBatch, withJudges, judgesConfig, judgeModels, modelFilter, ceilingModel, suite } = parseArgs();
   console.log(`Running translation-eval [suite=${suite}, preferBatch=${preferBatch}]...`);
 
-  const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_STUDIO_API_KEY || '';
   const orKey = process.env.OPENROUTER_API_KEY || '';
 
   const roster = await probeAndResolveRoster({
-    geminiApiKey: geminiKey,
     openrouterApiKey: orKey,
     ceilingModelOverride: ceilingModel,
     preferBatch,
@@ -166,8 +144,6 @@ async function main() {
   fs.writeFileSync(sweepOutputFile, '', 'utf8');
   const freeQueue = new OpenRouterFreeQueue({ apiKey: orKey, suite });
   const orRunner = new OpenRouterRunner({ apiKey: orKey });
-  const aiStudioRunner = new GoogleAiStudioRunner({ apiKey: geminiKey });
-  const aiStudioBatchRunner = new GoogleBatchRunner({ apiKey: geminiKey });
 
   let totalItemsCompleted = 0;
 
@@ -208,7 +184,7 @@ async function main() {
 
     console.log(`  Processing ${pendingRequests.length}/${requests.length} items...`);
 
-    if (model.mode === 'batch' && model.provider === 'openrouter') {
+    if (model.mode === 'batch') {
       try {
         const batchMap = await orRunner.runBatch(model.modelSlug, pendingRequests, model.pricing);
         for (const req of pendingRequests) {
@@ -230,50 +206,22 @@ async function main() {
           totalItemsCompleted++;
         }
       }
-    } else if (model.mode === 'batch' && model.provider === 'google-ai-studio') {
-      try {
-        const batchMap = await aiStudioBatchRunner.runBatch(model.modelSlug, pendingRequests);
-        for (const req of pendingRequests) {
-          const env = batchMap.get(req.request_id);
-          if (env) {
-            const rec = createRunRecord(model, req, env);
-            freeQueue.appendCheckpoint(model.provider, model.modelSlug, rec);
-            fs.appendFileSync(sweepOutputFile, JSON.stringify(rec) + '\n', 'utf8');
-            totalItemsCompleted++;
-          }
-        }
-      } catch (err: any) {
-        console.error(`  AI Studio batch failed: ${err.message}. Falling back to streaming.`);
-        for (const req of pendingRequests) {
-          const env = await aiStudioRunner.translate(model.modelSlug, req);
-          const rec = createRunRecord(model, req, env);
-          freeQueue.appendCheckpoint(model.provider, model.modelSlug, rec);
-          fs.appendFileSync(sweepOutputFile, JSON.stringify(rec) + '\n', 'utf8');
-          totalItemsCompleted++;
-        }
-      }
     } else {
       // Item by item execution (Stream)
       for (const req of pendingRequests) {
         try {
-          let env: TelemetryEnvelope;
-          if (model.provider === 'google-ai-studio') {
-            try {
-              env = await aiStudioRunner.translate(model.modelSlug, req);
-            } catch (err: any) {
-              if (err.message.includes('DAILY_QUOTA_EXHAUSTED')) {
-                console.warn(`  AI Studio daily quota reached for ${model.modelSlug}. Falling back to OpenRouter.`);
-                const orSlug = `google/${model.modelSlug}`;
-                env = await orRunner.translate(orSlug, req, { inputPerM: 0.15, outputPerM: 0.60 });
-              } else {
-                throw err;
-              }
-            }
-          } else {
-            env = await orRunner.translate(model.modelSlug, req, model.pricing);
-          }
-
+          const env = await orRunner.translate(model.modelSlug, req, model.pricing);
           const rec = createRunRecord(model, req, env);
+          freeQueue.appendCheckpoint(model.provider, model.modelSlug, rec);
+          fs.appendFileSync(sweepOutputFile, JSON.stringify(rec) + '\n', 'utf8');
+          totalItemsCompleted++;
+          process.stdout.write('.');
+        } catch (itemErr: any) {
+          console.error(`\n  Error on ${req.request_id}: ${itemErr.message}`);
+        }
+      }
+      console.log(' done.');
+    }
           freeQueue.appendCheckpoint(model.provider, model.modelSlug, rec);
           fs.appendFileSync(sweepOutputFile, JSON.stringify(rec) + '\n', 'utf8');
           totalItemsCompleted++;

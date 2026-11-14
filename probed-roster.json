@@ -1,44 +1,7 @@
 {
   "timestamp": "2026-11-07T03:24:57.716Z",
-  "ai_studio": {
-    "unlocked_stream": [],
-    "unlocked_batch": [],
-    "failed": [
-      {
-        "model": "gemini-4-argon",
-        "error": "HTTP 429: {\n  \"error\": {\n    \"code\": 429,\n    \"message\": \"You exceeded your current quota, please check your p"
-      },
-      {
-        "model": "gemini-3.8-pro",
-        "error": "HTTP 404: {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"models/gemini-3.8-pro is not found for API version v"
-      },
-      {
-        "model": "gemini-3.8-flash",
-        "error": "HTTP 503: {\n  \"error\": {\n    \"code\": 503,\n    \"message\": \"This model is currently experiencing high demand. Sp"
-      },
-      {
-        "model": "gemini-3.8-flash-lite",
-        "error": "HTTP 404: {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"models/gemini-3.8-flash-lite is not found for API ve"
-      },
-      {
-        "model": "gemma-4-31b-it",
-        "error": "HTTP 500: {\n  \"error\": {\n    \"code\": 500,\n    \"message\": \"Internal error encountered.\",\n    \"status\": \"INTERNA"
-      },
-      {
-        "model": "gemma-4-26b-a4b-it",
-        "error": "HTTP 500: {\n  \"error\": {\n    \"code\": 500,\n    \"message\": \"Internal error encountered.\",\n    \"status\": \"INTERNA"
-      },
-      {
-        "model": "gemini-3.7-flash",
-        "error": "The operation timed out."
-      }
-    ]
-  },
   "openrouter": {
-    "fallbacks": [
-      "google/gemma-4-31b-it",
-      "google/gemma-4-26b-a4b-it"
-    ],
+    "fallbacks": [],
     "ceiling_model": "anthropic/claude-sonnet-5.5:batch",
     "contenders": [
       "anthropic/claude-haiku-5.5:batch",
@@ -68,30 +31,6 @@
         "cachedReadPerM": 0.1
       },
       "isExpensive": true
-    },
-    {
-      "id": "openrouter:google/gemma-4-31b-it",
-      "modelSlug": "google/gemma-4-31b-it",
-      "provider": "openrouter",
-      "mode": "stream",
-      "bucket": "fallback",
-      "pricing": {
-        "inputPerM": 0.19999999999999998,
-        "outputPerM": 0.39999999999999997
-      },
-      "isExpensive": false
-    },
-    {
-      "id": "openrouter:google/gemma-4-26b-a4b-it",
-      "modelSlug": "google/gemma-4-26b-a4b-it",
-      "provider": "openrouter",
-      "mode": "stream",
-      "bucket": "fallback",
-      "pricing": {
-        "inputPerM": 0.0675,
-        "outputPerM": 0.22499999999999998
-      },
-      "isExpensive": false
     },
     {
       "id": "openrouter:anthropic/claude-haiku-5.5:batch",

@@ -117,16 +117,16 @@ export interface ModelPricing {
 export interface ProbedModel {
   id: string;
   modelSlug: string;
-  provider: 'google-ai-studio' | 'openrouter';
+  provider: 'openrouter';
   mode: 'stream' | 'batch';
-  bucket: 'ai_studio' | 'fallback' | 'ceiling' | 'contender' | 'mt_specialist';
+  bucket: 'ceiling' | 'contender' | 'mt_specialist' | 'fallback';
   pricing: ModelPricing;
   isExpensive?: boolean;
 }
 
 export interface ProbedRoster {
   timestamp: string;
-  ai_studio: {
+  ai_studio?: {
     unlocked_stream: string[];
     unlocked_batch: string[];
     failed: { model: string; error: string }[];

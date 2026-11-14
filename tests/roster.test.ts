@@ -12,28 +12,21 @@ describe('Pragmatic MT Prober & Roster Resolver', () => {
     globalThis.fetch = originalFetch;
   });
 
-  // Test 1: Models passing AI Studio probe route exclusively to google-ai-studio
-  it('routes models passing the AI Studio probe exclusively to google-ai-studio', async () => {
-    globalThis.fetch = async (url: string | URL | Request, init?: RequestInit) => {
+  // Test 1: Probe and resolve models exclusively from OpenRouter
+  it('resolves models exclusively from OpenRouter without Google AI Studio', async () => {
+    let googleEndpointCalled = false;
+    globalThis.fetch = async (url: string | URL | Request) => {
       const u = url.toString();
-      if (u.includes('generativelanguage.googleapis.com/v1beta/models?')) {
-        return new Response(JSON.stringify({
-          models: [{ name: 'models/gemini-3.8-flash', supportedGenerationMethods: ['generateContent'] }],
-        }), { status: 200 });
-      }
-      if (u.includes('gemini-3.8-flash:generateContent')) {
-        return new Response(JSON.stringify({
-          candidates: [{ content: { parts: [{ text: 'Hola' }] } }],
-        }), { status: 200 });
-      }
-      if (u.includes('gemini-3.8-flash:batchGenerateContent')) {
-        return new Response('{}', { status: 400 }); // Stream fallback
+      if (u.includes('googleapis.com')) {
+        googleEndpointCalled = true;
+        return new Response('{}', { status: 200 });
       }
       if (u.includes('openrouter.ai/api/v1/models')) {
         return new Response(JSON.stringify({
           data: [
-            { id: 'google/gemini-3.8-flash', pricing: { prompt: '0.00000075', completion: '0.00000375' } },
             { id: 'anthropic/claude-sonnet-5.5', pricing: { prompt: '0.000002', completion: '0.00001' } },
+            { id: 'qwen/qwen3.8-flash', pricing: { prompt: '0.00000006', completion: '0.00000024' } },
+            { id: 'minimax/minimax-m3.1-flash', pricing: { prompt: '0.0000001', completion: '0.0000004' } },
           ],
         }), { status: 200 });
       }
@@ -41,42 +34,27 @@ describe('Pragmatic MT Prober & Roster Resolver', () => {
     };
 
     const roster = await probeAndResolveRoster({
-      geminiApiKey: 'test-gemini-key',
       openrouterApiKey: 'test-or-key',
       skipMicroProbe: true,
     });
 
-    // gemini-3.8-flash unlocked on AI Studio
-    expect(roster.ai_studio.unlocked_stream).toContain('gemini-3.8-flash');
-    const aiStudioEntry = roster.active_roster.find((m) => m.modelSlug === 'gemini-3.8-flash');
-    expect(aiStudioEntry).toBeDefined();
-    expect(aiStudioEntry?.provider).toBe('google-ai-studio');
-
-    // Rule A: Blocked from running on OpenRouter
-    const orDuplicate = roster.active_roster.find((m) => m.modelSlug === 'google/gemini-3.8-flash');
-    expect(orDuplicate).toBeUndefined();
+    expect(googleEndpointCalled).toBe(false);
+    expect(roster.ai_studio).toBeUndefined();
+    expect(roster.active_roster.length).toBeGreaterThan(0);
+    expect(roster.active_roster.every((m) => m.provider === 'openrouter')).toBe(true);
+    expect(roster.openrouter.ceiling_model).toBe('anthropic/claude-sonnet-5.5');
+    expect(roster.openrouter.contenders).toContain('qwen/qwen3.8-flash');
   });
 
-  // Test 2: Models failing the AI Studio probe automatically fall back to OpenRouter
-  it('automatically falls back models failing AI Studio probe (403/429 limit 0) to OpenRouter', async () => {
-    globalThis.fetch = async (url: string | URL | Request, init?: RequestInit) => {
+  // Test 2: Selects batch mode endpoints when preferBatch is requested
+  it('selects batch mode endpoints when preferBatch is requested', async () => {
+    globalThis.fetch = async (url: string | URL | Request) => {
       const u = url.toString();
-      if (u.includes('generativelanguage.googleapis.com/v1beta/models?')) {
-        return new Response(JSON.stringify({
-          models: [{ name: 'models/gemma-4-31b-it', supportedGenerationMethods: ['generateContent'] }],
-        }), { status: 200 });
-      }
-      if (u.includes('gemma-4-31b-it:generateContent')) {
-        // Return 429 quota exhausted
-        return new Response(JSON.stringify({
-          error: { code: 429, message: 'Resource exhausted (limit: 0)' },
-        }), { status: 429 });
-      }
       if (u.includes('openrouter.ai/api/v1/models')) {
         return new Response(JSON.stringify({
           data: [
-            { id: 'google/gemma-4-31b-it', pricing: { prompt: '0.00000007', completion: '0.0000003' } },
-            { id: 'anthropic/claude-sonnet-5.5', pricing: { prompt: '0.000002', completion: '0.00001' } },
+            { id: 'anthropic/claude-sonnet-5.5:batch', pricing: { prompt: '0.000001', completion: '0.000005' } },
+            { id: 'anthropic/claude-haiku-5.5:batch', pricing: { prompt: '0.00000025', completion: '0.00000125' } },
           ],
         }), { status: 200 });
       }
@@ -84,39 +62,28 @@ describe('Pragmatic MT Prober & Roster Resolver', () => {
     };
 
     const roster = await probeAndResolveRoster({
-      geminiApiKey: 'test-gemini-key',
       openrouterApiKey: 'test-or-key',
+      preferBatch: true,
       skipMicroProbe: true,
     });
 
-    const failed = roster.ai_studio.failed.find((f) => f.model === 'gemma-4-31b-it');
-    expect(failed).toBeDefined();
-
-    // Fallback routed to OpenRouter paid variant
-    expect(roster.openrouter.fallbacks).toContain('google/gemma-4-31b-it');
-    const orFallback = roster.active_roster.find((m) => m.modelSlug === 'google/gemma-4-31b-it');
-    expect(orFallback).toBeDefined();
-    expect(orFallback?.provider).toBe('openrouter');
+    expect(roster.openrouter.ceiling_model).toBe('anthropic/claude-sonnet-5.5:batch');
+    const ceiling = roster.active_roster.find((m) => m.modelSlug === 'anthropic/claude-sonnet-5.5:batch');
+    expect(ceiling?.mode).toBe('batch');
+    const haiku = roster.active_roster.find((m) => m.modelSlug === 'anthropic/claude-haiku-5.5:batch');
+    expect(haiku?.mode).toBe('batch');
   });
 
   // Test 3: Single Expensive Model Budget Cap blocks more than 1 flagship paid model
   it('enforces single expensive model budget cap (max 1 flagship paid model)', async () => {
     globalThis.fetch = async (url: string | URL | Request) => {
       const u = url.toString();
-      if (u.includes('generativelanguage.googleapis.com/v1beta/models?')) {
-        return new Response(JSON.stringify({
-          models: [{ name: 'models/gemini-4-argon', supportedGenerationMethods: ['generateContent'] }],
-        }), { status: 200 });
-      }
-      if (u.includes('gemini-4-argon:generateContent')) {
-        return new Response('Quota exceeded (limit 0)', { status: 429 });
-      }
       if (u.includes('openrouter.ai/api/v1/models')) {
         return new Response(JSON.stringify({
           data: [
             // Both are expensive: in > 0.50, out > 2.50
             { id: 'anthropic/claude-sonnet-5.5', pricing: { prompt: '0.000002', completion: '0.00001' } },
-            { id: 'google/gemini-4-argon', pricing: { prompt: '0.000002', completion: '0.00001' } },
+            { id: 'deepseek/deepseek-v4.1-flash-1017', pricing: { prompt: '0.000002', completion: '0.00001' } },
           ],
         }), { status: 200 });
       }
@@ -124,7 +91,6 @@ describe('Pragmatic MT Prober & Roster Resolver', () => {
     };
 
     const roster = await probeAndResolveRoster({
-      geminiApiKey: 'test-gemini-key',
       openrouterApiKey: 'test-or-key',
       skipMicroProbe: true,
     });
@@ -137,8 +103,8 @@ describe('Pragmatic MT Prober & Roster Resolver', () => {
     expect(expensiveModels.length).toBe(1);
     expect(expensiveModels[0].modelSlug).toBe('anthropic/claude-sonnet-5.5');
 
-    // gemini-4-argon is blocked from fallback queue because ceiling model is already filled
-    expect(roster.openrouter.fallbacks).not.toContain('google/gemini-4-argon');
+    // Expensive contender is skipped due to budget cap
+    expect(roster.openrouter.contenders).not.toContain('deepseek/deepseek-v4.1-flash-1017');
   });
 
   // Test 4: :free models obey pacing and checkpoint after each item
