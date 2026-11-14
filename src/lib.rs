@@ -29,7 +29,7 @@ pub use compiler::{
 };
 pub use grader::{
     best_chrf, chrf, chrf_plus_plus, classify_default_bias, evaluate_anchors, evaluate_ensemble,
-    render_markdown, write_csv, write_markdown, HttpJudgeClient, JudgeClient, JudgeRequest,
+    evaluate_ensemble_slice, render_markdown, write_csv, write_markdown, HttpJudgeClient, JudgeClient, JudgeRequest,
 };
 pub use providers::{
     AmazonTranslateProvider, AzureGenAiTranslatorProvider, AzureStandardNmtProvider,

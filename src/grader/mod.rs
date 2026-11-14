@@ -7,5 +7,5 @@ pub mod report;
 
 pub use layer1_anchors::*;
 pub use layer2_chrf::*;
-pub use layer3_ensemble::{evaluate_ensemble, HttpJudgeClient, JudgeClient, JudgeRequest};
+pub use layer3_ensemble::{evaluate_ensemble, evaluate_ensemble_slice, HttpJudgeClient, JudgeClient, JudgeRequest};
 pub use report::{percentile, render_markdown, write_csv, write_markdown};

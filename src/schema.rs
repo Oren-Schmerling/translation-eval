@@ -482,7 +482,7 @@ impl JudgeScores {
     }
 }
 
-/// Aggregated result from two judges, including disagreement diagnostics.
+/// Aggregated result from two or more judges, including disagreement diagnostics.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnsembleResult {
     pub judge_a: JudgeScores,
@@ -490,6 +490,8 @@ pub struct EnsembleResult {
     pub mean: JudgeScores,
     pub high_disagreement_flag: bool,
     pub disagreement_axes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub judges: Vec<JudgeScores>,
 }
 
 /// Flat, serializable record for one provider call.

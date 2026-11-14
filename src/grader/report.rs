@@ -814,6 +814,7 @@ mod tests {
                 mean: scores,
                 high_disagreement_flag: false,
                 disagreement_axes: Vec::new(),
+                judges: vec![scores, scores],
             }),
             bias_profile,
             high_disagreement_flag: false,

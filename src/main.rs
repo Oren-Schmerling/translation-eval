@@ -14,8 +14,8 @@ use clap::{Parser, Subcommand, ValueEnum};
 
 use pragmatic_mt_eval::compiler::compile_dataset;
 use pragmatic_mt_eval::grader::{
-    best_chrf, classify_default_bias, evaluate_anchors, evaluate_ensemble, write_csv,
-    write_markdown, HttpJudgeClient, JudgeRequest,
+    best_chrf, classify_default_bias, evaluate_anchors, evaluate_ensemble_slice,
+    write_csv, write_markdown, HttpJudgeClient, JudgeClient, JudgeRequest,
 };
 use pragmatic_mt_eval::providers::amazon::{AmazonTranslateProvider, DEFAULT_AMAZON_BASE_URL};
 use pragmatic_mt_eval::providers::deepl::{DeepLProvider, DEFAULT_DEEPL_BASE_URL};
@@ -608,8 +608,12 @@ async fn run_provider(options: RunOptions, args: &RunArgs) -> Result<()> {
 
 #[derive(Debug, serde::Deserialize)]
 struct JudgeConfigFile {
-    judge_a: JudgeConfig,
-    judge_b: JudgeConfig,
+    #[serde(default)]
+    judge_a: Option<JudgeConfig>,
+    #[serde(default)]
+    judge_b: Option<JudgeConfig>,
+    #[serde(default)]
+    judges: Vec<JudgeConfig>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -620,23 +624,37 @@ struct JudgeConfig {
     model: String,
 }
 
-fn load_judges(path: &Path) -> Result<(HttpJudgeClient, HttpJudgeClient)> {
+fn load_judges(path: &Path) -> Result<Vec<HttpJudgeClient>> {
     let raw = fs::read_to_string(path)
         .with_context(|| format!("failed to read judges config {}", path.display()))?;
-    let config: JudgeConfigFile = serde_json::from_str(&raw)
-        .with_context(|| format!("failed to parse judges config {}", path.display()))?;
 
-    let judge_a = HttpJudgeClient::new(
-        config.judge_a.base_url,
-        config.judge_a.api_key,
-        config.judge_a.model,
-    );
-    let judge_b = HttpJudgeClient::new(
-        config.judge_b.base_url,
-        config.judge_b.api_key,
-        config.judge_b.model,
-    );
-    Ok((judge_a, judge_b))
+    let mut configs = Vec::new();
+    if let Ok(list) = serde_json::from_str::<Vec<JudgeConfig>>(&raw) {
+        configs = list;
+    } else {
+        let config: JudgeConfigFile = serde_json::from_str(&raw)
+            .with_context(|| format!("failed to parse judges config {}", path.display()))?;
+        if !config.judges.is_empty() {
+            configs = config.judges;
+        } else {
+            if let Some(ja) = config.judge_a {
+                configs.push(ja);
+            }
+            if let Some(jb) = config.judge_b {
+                configs.push(jb);
+            }
+        }
+    }
+
+    if configs.is_empty() {
+        bail!("no judge configurations found in {}", path.display());
+    }
+
+    let clients = configs
+        .into_iter()
+        .map(|c| HttpJudgeClient::new(c.base_url, c.api_key, c.model))
+        .collect();
+    Ok(clients)
 }
 
 async fn run_grade(args: &GradeArgs) -> Result<()> {
@@ -671,7 +689,7 @@ async fn run_grade(args: &GradeArgs) -> Result<()> {
         record.ensemble = None;
         record.high_disagreement_flag = false;
 
-        if let Some((judge_a, judge_b)) = judges.as_ref() {
+        if let Some(judges_list) = judges.as_ref() {
             let request = JudgeRequest::new(
                 record.source_en.clone(),
                 record.translation.clone(),
@@ -679,7 +697,8 @@ async fn run_grade(args: &GradeArgs) -> Result<()> {
                 record.coarse.clone(),
                 record.granular.clone(),
             );
-            match evaluate_ensemble(judge_a, judge_b, &request, anchors.passed).await {
+            let judge_refs: Vec<&dyn JudgeClient> = judges_list.iter().map(|j| j as &dyn JudgeClient).collect();
+            match evaluate_ensemble_slice(&judge_refs, &request, anchors.passed).await {
                 Ok(ensemble) => {
                     record.high_disagreement_flag = ensemble.high_disagreement_flag;
                     record.ensemble = Some(ensemble);

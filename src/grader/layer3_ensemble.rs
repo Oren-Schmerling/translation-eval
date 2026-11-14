@@ -182,71 +182,91 @@ fn strip_code_fences(content: &str) -> &str {
 }
 
 /// Runs two judges concurrently and aggregates their scores.
-///
-/// The mean is computed per axis. An axis is flagged when the two judges
-/// differ by at least `2.0`; additionally, a translation that failed Layer 1
-/// but still receives a high overall judge mean is treated as suspicious.
 pub async fn evaluate_ensemble(
     judge_a: &dyn JudgeClient,
     judge_b: &dyn JudgeClient,
     request: &JudgeRequest,
     layer1_passed: bool,
 ) -> Result<EnsembleResult> {
-    let (result_a, result_b) = tokio::join!(judge_a.score(request), judge_b.score(request));
-    let judge_a_scores = result_a.context("judge A failed")?;
-    let judge_b_scores = result_b.context("judge B failed")?;
+    evaluate_ensemble_slice(&[judge_a, judge_b], request, layer1_passed).await
+}
 
+/// Runs multiple judges concurrently and aggregates their scores.
+///
+/// The mean is computed per axis across all successful judges. An axis is flagged
+/// when the judges differ by at least `2.0` (max - min); additionally, a translation
+/// that failed Layer 1 but still receives a high overall judge mean is treated as suspicious.
+pub async fn evaluate_ensemble_slice(
+    judges: &[&dyn JudgeClient],
+    request: &JudgeRequest,
+    layer1_passed: bool,
+) -> Result<EnsembleResult> {
+    if judges.is_empty() {
+        return Err(anyhow!("at least one judge is required"));
+    }
+
+    let futures = judges.iter().map(|j| j.score(request));
+    let results: Vec<Result<JudgeScores>> = futures_util::future::join_all(futures).await;
+
+    let mut scores = Vec::with_capacity(results.len());
+    let mut errors = Vec::new();
+    for (i, res) in results.into_iter().enumerate() {
+        match res {
+            Ok(score) => scores.push(score),
+            Err(e) => errors.push(format!("{}: {e:#}", judges[i].judge_id())),
+        }
+    }
+
+    if scores.is_empty() {
+        return Err(anyhow!("all judges failed: {}", errors.join("; ")));
+    }
+
+    let n = scores.len() as f32;
     let mean = JudgeScores {
-        formality_compliance: (judge_a_scores.formality_compliance
-            + judge_b_scores.formality_compliance)
-            / 2.0,
-        gender_agreement: (judge_a_scores.gender_agreement + judge_b_scores.gender_agreement) / 2.0,
-        dialect_authenticity: (judge_a_scores.dialect_authenticity
-            + judge_b_scores.dialect_authenticity)
-            / 2.0,
-        naturalness_fluency: (judge_a_scores.naturalness_fluency
-            + judge_b_scores.naturalness_fluency)
-            / 2.0,
+        formality_compliance: scores.iter().map(|s| s.formality_compliance).sum::<f32>() / n,
+        gender_agreement: scores.iter().map(|s| s.gender_agreement).sum::<f32>() / n,
+        dialect_authenticity: scores.iter().map(|s| s.dialect_authenticity).sum::<f32>() / n,
+        naturalness_fluency: scores.iter().map(|s| s.naturalness_fluency).sum::<f32>() / n,
     };
 
-    let axes = [
-        (
-            "formality_compliance",
-            judge_a_scores.formality_compliance,
-            judge_b_scores.formality_compliance,
-        ),
-        (
-            "gender_agreement",
-            judge_a_scores.gender_agreement,
-            judge_b_scores.gender_agreement,
-        ),
-        (
-            "dialect_authenticity",
-            judge_a_scores.dialect_authenticity,
-            judge_b_scores.dialect_authenticity,
-        ),
-        (
-            "naturalness_fluency",
-            judge_a_scores.naturalness_fluency,
-            judge_b_scores.naturalness_fluency,
-        ),
+    let axes: [(&'static str, fn(&JudgeScores) -> f32); 4] = [
+        ("formality_compliance", |s| s.formality_compliance),
+        ("gender_agreement", |s| s.gender_agreement),
+        ("dialect_authenticity", |s| s.dialect_authenticity),
+        ("naturalness_fluency", |s| s.naturalness_fluency),
     ];
 
-    let disagreement_axes: Vec<String> = axes
-        .iter()
-        .filter(|(_, a, b)| (a - b).abs() >= 2.0)
-        .map(|(name, _, _)| (*name).to_owned())
-        .collect();
+    let mut disagreement_axes = Vec::new();
+    for (name, getter) in axes {
+        let mut min = f32::MAX;
+        let mut max = f32::MIN;
+        for s in &scores {
+            let val = getter(s);
+            if val < min {
+                min = val;
+            }
+            if val > max {
+                max = val;
+            }
+        }
+        if (max - min) >= 2.0 {
+            disagreement_axes.push(name.to_owned());
+        }
+    }
 
     let high_disagreement_flag =
         !disagreement_axes.is_empty() || (!layer1_passed && mean.overall() >= 4.0);
 
+    let judge_a = scores[0];
+    let judge_b = if scores.len() > 1 { scores[1] } else { scores[0] };
+
     Ok(EnsembleResult {
-        judge_a: judge_a_scores,
-        judge_b: judge_b_scores,
+        judge_a,
+        judge_b,
         mean,
         high_disagreement_flag,
         disagreement_axes,
+        judges: scores,
     })
 }
 
@@ -323,5 +343,26 @@ mod tests {
 
         assert!(!result.high_disagreement_flag);
         assert!(result.disagreement_axes.is_empty());
+    }
+
+    #[tokio::test]
+    async fn multi_judge_ensemble_computes_means_and_disagreements() {
+        let judge_1 = MockJudge::new("1", [5.0, 4.0, 3.0, 4.0]);
+        let judge_2 = MockJudge::new("2", [3.0, 4.0, 3.0, 4.0]);
+        let judge_3 = MockJudge::new("3", [1.0, 4.0, 3.0, 3.0]);
+
+        let judges: Vec<&dyn JudgeClient> = vec![&judge_1, &judge_2, &judge_3];
+        let result = evaluate_ensemble_slice(&judges, &request(), true)
+            .await
+            .expect("multi judge ensemble should succeed");
+
+        assert_eq!(result.judges.len(), 3);
+        assert!((result.mean.formality_compliance - 3.0).abs() < 1e-4);
+        assert!((result.mean.gender_agreement - 4.0).abs() < 1e-4);
+        assert!((result.mean.dialect_authenticity - 3.0).abs() < 1e-4);
+        assert!((result.mean.naturalness_fluency - 11.0 / 3.0).abs() < 1e-4);
+        // Formality diff: 5.0 - 1.0 = 4.0 >= 2.0 -> flagged
+        assert!(result.high_disagreement_flag);
+        assert_eq!(result.disagreement_axes, vec!["formality_compliance"]);
     }
 }
