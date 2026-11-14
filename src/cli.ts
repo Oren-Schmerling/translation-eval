@@ -7,6 +7,22 @@ import { OpenRouterFreeQueue } from './providers/openrouter-free-queue';
 import { buildRequestsForSuite, loadDataset } from './suite';
 import { ProbedModel, ProbedRoster, RunRecord, SuiteType, TelemetryEnvelope } from './types';
 
+export async function runConcurrent<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<void>
+): Promise<void> {
+  let currentIndex = 0;
+  const workerCount = Math.min(concurrency, items.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (currentIndex < items.length) {
+      const index = currentIndex++;
+      await worker(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+}
+
 function resolveJudgeModelSlug(name: string): string {
   const n = name.trim().toLowerCase();
   if (n === 'sonnet 5.5' || n === 'sonnet-5.5' || n === 'claude-sonnet-5.5' || n.includes('claude-sonnet-5.5')) return 'anthropic/claude-sonnet-5.5';
@@ -29,6 +45,7 @@ function parseArgs() {
   let modelFilter: string[] | undefined;
   let ceilingModel: string | undefined;
   let suite: SuiteType = 'smoke';
+  let concurrency = 10;
 
   for (const arg of args) {
     if (arg === '--probe-only') probeOnly = true;
@@ -41,11 +58,15 @@ function parseArgs() {
     else if (arg.startsWith('--models=')) {
       modelFilter = arg.slice('--models='.length).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
     }
+    else if (arg.startsWith('--concurrency=')) {
+      const parsed = parseInt(arg.slice('--concurrency='.length), 10);
+      if (!isNaN(parsed) && parsed > 0) concurrency = parsed;
+    }
     else if (arg.startsWith('--judges-config=')) judgesConfig = arg.slice('--judges-config='.length);
     else if (arg.startsWith('--ceiling-model=')) ceilingModel = arg.slice('--ceiling-model='.length);
     else if (arg.startsWith('--suite=')) suite = arg.slice('--suite='.length) as SuiteType;
   }
-  return { probeOnly, preferBatch, withJudges, judgesConfig, judgeModels, modelFilter, ceilingModel, suite };
+  return { probeOnly, preferBatch, withJudges, judgesConfig, judgeModels, modelFilter, ceilingModel, suite, concurrency };
 }
 
 function printRoutingTable(roster: ProbedRoster) {
@@ -117,8 +138,8 @@ function createRunRecord(
 }
 
 async function main() {
-  const { probeOnly, preferBatch, withJudges, judgesConfig, judgeModels, modelFilter, ceilingModel, suite } = parseArgs();
-  console.log(`Running translation-eval [suite=${suite}, preferBatch=${preferBatch}]...`);
+  const { probeOnly, preferBatch, withJudges, judgesConfig, judgeModels, modelFilter, ceilingModel, suite, concurrency } = parseArgs();
+  console.log(`Running translation-eval [suite=${suite}, preferBatch=${preferBatch}, concurrency=${concurrency}]...`);
 
   const orKey = process.env.OPENROUTER_API_KEY || '';
 
@@ -198,17 +219,24 @@ async function main() {
         }
       } catch (err: any) {
         console.error(`  Batch failed for ${model.id}: ${err.message}. Falling back to standard.`);
-        for (const req of pendingRequests) {
-          const env = await orRunner.translate(model.modelSlug.replace(/:batch$/, ''), req, model.pricing);
-          const rec = createRunRecord(model, req, env);
-          freeQueue.appendCheckpoint(model.provider, model.modelSlug, rec);
-          fs.appendFileSync(sweepOutputFile, JSON.stringify(rec) + '\n', 'utf8');
-          totalItemsCompleted++;
-        }
+        const fallbackSlug = model.modelSlug.replace(/:batch$/, '');
+        await runConcurrent(pendingRequests, concurrency, async (req) => {
+          try {
+            const env = await orRunner.translate(fallbackSlug, req, model.pricing);
+            const rec = createRunRecord(model, req, env);
+            freeQueue.appendCheckpoint(model.provider, model.modelSlug, rec);
+            fs.appendFileSync(sweepOutputFile, JSON.stringify(rec) + '\n', 'utf8');
+            totalItemsCompleted++;
+            process.stdout.write('.');
+          } catch (itemErr: any) {
+            console.error(`\n  Error on ${req.request_id}: ${itemErr.message}`);
+          }
+        });
+        console.log(' done.');
       }
     } else {
       // Item by item execution (Stream)
-      for (const req of pendingRequests) {
+      await runConcurrent(pendingRequests, concurrency, async (req) => {
         try {
           const env = await orRunner.translate(model.modelSlug, req, model.pricing);
           const rec = createRunRecord(model, req, env);
@@ -219,17 +247,7 @@ async function main() {
         } catch (itemErr: any) {
           console.error(`\n  Error on ${req.request_id}: ${itemErr.message}`);
         }
-      }
-      console.log(' done.');
-    }
-          freeQueue.appendCheckpoint(model.provider, model.modelSlug, rec);
-          fs.appendFileSync(sweepOutputFile, JSON.stringify(rec) + '\n', 'utf8');
-          totalItemsCompleted++;
-          process.stdout.write('.');
-        } catch (itemErr: any) {
-          console.error(`\n  Error on ${req.request_id}: ${itemErr.message}`);
-        }
-      }
+      });
       console.log(' done.');
     }
   }
@@ -246,6 +264,7 @@ async function main() {
     'run', '--', 'grade',
     '--input', sweepOutputFile,
     '--output', gradedFile,
+    '--concurrency', String(concurrency),
   ];
 
   if (withJudges || judgesConfig) {

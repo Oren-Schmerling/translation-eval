@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-11-07T03:24:57.716Z",
+  "timestamp": "2026-11-14T03:59:38.696Z",
   "openrouter": {
     "fallbacks": [],
     "ceiling_model": "anthropic/claude-sonnet-5.5:batch",
@@ -7,7 +7,7 @@
       "anthropic/claude-haiku-5.5:batch",
       "deepseek/deepseek-v4.1-flash:batch",
       "qwen/qwen3.8-flash",
-      "qwen/qwen3.8-27b",
+      "qwen/qwen3.8-27b:batch",
       "z-ai/glm-5.3-flash:batch",
       "minimax/minimax-m3.1-flash"
     ],
@@ -66,14 +66,14 @@
       }
     },
     {
-      "id": "openrouter:qwen/qwen3.8-27b",
-      "modelSlug": "qwen/qwen3.8-27b",
+      "id": "openrouter:qwen/qwen3.8-27b:batch",
+      "modelSlug": "qwen/qwen3.8-27b:batch",
       "provider": "openrouter",
-      "mode": "stream",
+      "mode": "batch",
       "bucket": "contender",
       "pricing": {
-        "inputPerM": 0.15,
-        "outputPerM": 1.875
+        "inputPerM": 0.16,
+        "outputPerM": 2
       }
     },
     {

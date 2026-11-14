@@ -8,9 +8,11 @@ use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
+use futures_util::stream::{self, StreamExt};
 
 use pragmatic_mt_eval::compiler::compile_dataset;
 use pragmatic_mt_eval::grader::{
@@ -126,6 +128,9 @@ enum Command {
         /// Optional JSON file configuring two OpenAI-compatible judges.
         #[arg(long)]
         judges_config: Option<PathBuf>,
+        /// Record-level evaluation concurrency limit.
+        #[arg(long, default_value_t = 10)]
+        concurrency: usize,
     },
     /// Render Markdown and CSV reports from graded records.
     Report {
@@ -668,51 +673,69 @@ async fn run_grade(args: &GradeArgs) -> Result<()> {
         .map(load_judges)
         .transpose()?;
 
-    let mut judge_errors = 0usize;
-    for record in records.iter_mut() {
-        let anchors = evaluate_anchors(&record.translation, &record.anchors);
-        record.layer1 = Some(anchors.clone());
-        record.chrf = Some(best_chrf(
-            &record.translation,
-            &record.gold_reference,
-            &record.anchors.acceptable_synonyms,
-        ));
+    let judge_errors = AtomicUsize::new(0);
+    let completed = AtomicUsize::new(0);
+    let total = records.len();
+    let concurrency = args.concurrency.max(1);
 
-        let siblings: Vec<pragmatic_mt_eval::schema::TargetVariant> = dataset
-            .siblings(&record.item_id, &record.variant_id)
-            .into_iter()
-            .filter(|variant| variant.lang == record.lang)
-            .cloned()
-            .collect();
-        record.bias_profile = Some(classify_default_bias(&record.translation, &siblings));
+    stream::iter(records.iter_mut())
+        .for_each_concurrent(concurrency, |record| {
+            let judges_ref = judges.as_ref();
+            let dataset_ref = &dataset;
+            let completed_ref = &completed;
+            let errors_ref = &judge_errors;
+            async move {
+                let anchors = evaluate_anchors(&record.translation, &record.anchors);
+                record.layer1 = Some(anchors.clone());
+                record.chrf = Some(best_chrf(
+                    &record.translation,
+                    &record.gold_reference,
+                    &record.anchors.acceptable_synonyms,
+                ));
 
-        record.ensemble = None;
-        record.high_disagreement_flag = false;
+                let siblings: Vec<pragmatic_mt_eval::schema::TargetVariant> = dataset_ref
+                    .siblings(&record.item_id, &record.variant_id)
+                    .into_iter()
+                    .filter(|variant| variant.lang == record.lang)
+                    .cloned()
+                    .collect();
+                record.bias_profile = Some(classify_default_bias(&record.translation, &siblings));
 
-        if let Some(judges_list) = judges.as_ref() {
-            let request = JudgeRequest::new(
-                record.source_en.clone(),
-                record.translation.clone(),
-                record.lang,
-                record.coarse.clone(),
-                record.granular.clone(),
-            );
-            let judge_refs: Vec<&dyn JudgeClient> = judges_list.iter().map(|j| j as &dyn JudgeClient).collect();
-            match evaluate_ensemble_slice(&judge_refs, &request, anchors.passed).await {
-                Ok(ensemble) => {
-                    record.high_disagreement_flag = ensemble.high_disagreement_flag;
-                    record.ensemble = Some(ensemble);
-                }
-                Err(error) => {
-                    eprintln!(
-                        "warning: judge ensemble failed for {}: {error:#}",
-                        record.request_id
+                record.ensemble = None;
+                record.high_disagreement_flag = false;
+
+                if let Some(judges_list) = judges_ref {
+                    let request = JudgeRequest::new(
+                        record.source_en.clone(),
+                        record.translation.clone(),
+                        record.lang,
+                        record.coarse.clone(),
+                        record.granular.clone(),
                     );
-                    judge_errors += 1;
+                    let judge_refs: Vec<&dyn JudgeClient> = judges_list.iter().map(|j| j as &dyn JudgeClient).collect();
+                    match evaluate_ensemble_slice(&judge_refs, &request, anchors.passed).await {
+                        Ok(ensemble) => {
+                            record.high_disagreement_flag = ensemble.high_disagreement_flag;
+                            record.ensemble = Some(ensemble);
+                        }
+                        Err(error) => {
+                            eprintln!(
+                                "warning: judge ensemble failed for {}: {error:#}",
+                                record.request_id
+                            );
+                            errors_ref.fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
                 }
+
+                let done = completed_ref.fetch_add(1, Ordering::Relaxed) + 1;
+                eprint!("\rGrading progress: {}/{}", done, total);
             }
-        }
-    }
+        })
+        .await;
+    eprintln!();
+
+    let judge_errors = judge_errors.load(Ordering::Relaxed);
 
     let mut writer = create_jsonl(&args.output)?;
     for record in &records {
@@ -780,6 +803,8 @@ struct GradeArgs {
     dataset: PathBuf,
     #[arg(long)]
     judges_config: Option<PathBuf>,
+    #[arg(long, default_value_t = 10)]
+    concurrency: usize,
 }
 
 #[derive(Debug, Parser)]
@@ -848,12 +873,14 @@ async fn main() -> Result<()> {
             output,
             dataset,
             judges_config,
+            concurrency,
         } => {
             let args = GradeArgs {
                 input,
                 output,
                 dataset,
                 judges_config,
+                concurrency,
             };
             run_grade(&args).await
         }

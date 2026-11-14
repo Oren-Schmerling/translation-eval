@@ -205,12 +205,22 @@ export class OpenRouterRunner {
         throw new Error(`OpenRouter Batch ${batchId} failed with status ${status}`);
       }
       if (Date.now() - pollStart > maxWaitMs) {
-        // Fallback: execute standard endpoint if batch takes longer than interactive limit
+        // Fallback: execute standard endpoint concurrently if batch takes longer than interactive limit
         const baseSlug = batchModelSlug.replace(/:batch$/, '');
-        for (const req of requests) {
-          const env = await this.translate(baseSlug, req, pricing);
-          results.set(req.request_id, env);
-        }
+        let currentIndex = 0;
+        const poolSize = Math.min(10, requests.length);
+        const workers = Array.from({ length: poolSize }, async () => {
+          while (currentIndex < requests.length) {
+            const req = requests[currentIndex++];
+            try {
+              const env = await this.translate(baseSlug, req, pricing);
+              results.set(req.request_id, env);
+            } catch (err: any) {
+              console.error(`Batch fallback error on ${req.request_id}:`, err?.message);
+            }
+          }
+        });
+        await Promise.all(workers);
         return results;
       }
       await new Promise((r) => setTimeout(r, 4000));

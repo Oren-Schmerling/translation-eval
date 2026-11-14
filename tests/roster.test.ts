@@ -1,7 +1,8 @@
 import { describe, expect, it, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { isExpensiveModel, matchesScript, probeAndResolveRoster } from '../src/discovery/model-prober';
+import { isExpensiveModel, matchesScript, probeAndResolveRoster, resolveBatchSlug } from '../src/discovery/model-prober';
+import { runConcurrent } from '../src/cli';
 import { OpenRouterFreeQueue } from '../src/providers/openrouter-free-queue';
 import { RunRecord, TranslationRequest } from '../src/types';
 
@@ -265,6 +266,48 @@ describe('Pragmatic MT Prober & Roster Resolver', () => {
     expect(roster.active_roster.some((m) => m.bucket === 'free')).toBe(false);
     expect(roster.active_roster.every((m) => m.pricing.inputPerM > 0 && m.pricing.outputPerM > 0)).toBe(true);
     expect(roster.openrouter.free_models).toEqual([]);
+  });
+
+  // Test 7: Dynamic batch resolution helper
+  it('dynamically resolves batch slugs based on catalog and preferBatch flag', () => {
+    const catalog = [
+      { id: 'anthropic/claude-sonnet-5.5' },
+      { id: 'anthropic/claude-sonnet-5.5:batch' },
+      { id: 'qwen/qwen3.8-flash' },
+    ];
+
+    expect(resolveBatchSlug('anthropic/claude-sonnet-5.5', catalog, false)).toEqual({
+      modelSlug: 'anthropic/claude-sonnet-5.5',
+      isBatch: false,
+    });
+    expect(resolveBatchSlug('anthropic/claude-sonnet-5.5', catalog, true)).toEqual({
+      modelSlug: 'anthropic/claude-sonnet-5.5:batch',
+      isBatch: true,
+    });
+    expect(resolveBatchSlug('qwen/qwen3.8-flash', catalog, true)).toEqual({
+      modelSlug: 'qwen/qwen3.8-flash',
+      isBatch: false,
+    });
+  });
+
+  // Test 8: runConcurrent runs workers with bounded concurrency
+  it('executes tasks concurrently bounded by concurrency limit', async () => {
+    const items = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    let maxRunning = 0;
+    let currentlyRunning = 0;
+    const completed: number[] = [];
+
+    await runConcurrent(items, 3, async (item) => {
+      currentlyRunning++;
+      maxRunning = Math.max(maxRunning, currentlyRunning);
+      await new Promise((r) => setTimeout(r, 10));
+      completed.push(item);
+      currentlyRunning--;
+    });
+
+    expect(maxRunning).toBeLessThanOrEqual(3);
+    expect(completed.length).toBe(10);
+    expect(completed.sort((a, b) => a - b)).toEqual(items);
   });
 });
 

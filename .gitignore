@@ -29,9 +29,7 @@ data/compiled/*.json
 data/templates/*.csv
 data/hf_export/
 results/*
-!results/azure_genai_full_report.md
-!results/sweep_smoke_report.md
-!results/sweep_smoke_summary.csv
+!results/sweep_stratified_report.md
 *.jsonl
 __pycache__/
 .venv/

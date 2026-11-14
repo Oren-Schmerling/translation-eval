@@ -83,7 +83,11 @@ impl HttpJudgeClient {
             base_url: base_url.trim_end_matches('/').to_owned(),
             api_key: api_key.into(),
             model: model.into(),
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .timeout(std::time::Duration::from_secs(45))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
         }
     }
 }
@@ -126,47 +130,66 @@ impl JudgeClient for HttpJudgeClient {
             ]
         });
 
-        let mut builder = self.client.post(&url).json(&body);
-        if !self.api_key.is_empty() {
-            builder = builder.bearer_auth(&self.api_key);
+        let mut attempts = 0;
+        let max_attempts = 3;
+        loop {
+            attempts += 1;
+            let mut builder = self.client.post(&url).json(&body);
+            if !self.api_key.is_empty() {
+                builder = builder.bearer_auth(&self.api_key);
+            }
+
+            let response = builder.send().await;
+            match response {
+                Ok(resp) => {
+                    let status = resp.status();
+                    if status.is_success() {
+                        let text = resp
+                            .text()
+                            .await
+                            .context("failed to read judge response body")?;
+
+                        let value: serde_json::Value = serde_json::from_str(&text)
+                            .with_context(|| format!("judge response was not valid JSON: {text}"))?;
+                        let content = value
+                            .get("choices")
+                            .and_then(|choices| choices.get(0))
+                            .and_then(|choice| choice.get("message"))
+                            .and_then(|message| message.get("content"))
+                            .and_then(|content| content.as_str())
+                            .ok_or_else(|| anyhow!("judge response missing choices[0].message.content"))?;
+
+                        let stripped = strip_code_fences(content);
+                        let mut scores: JudgeScores = serde_json::from_str(stripped)
+                            .with_context(|| format!("judge content was not valid JudgeScores: {stripped}"))?;
+
+                        scores.formality_compliance = scores.formality_compliance.clamp(0.0, 5.0);
+                        scores.gender_agreement = scores.gender_agreement.clamp(0.0, 5.0);
+                        scores.dialect_authenticity = scores.dialect_authenticity.clamp(0.0, 5.0);
+                        scores.naturalness_fluency = scores.naturalness_fluency.clamp(0.0, 5.0);
+
+                        return Ok(scores);
+                    } else if (status.as_u16() == 429 || status.is_server_error()) && attempts < max_attempts {
+                        let jitter = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().subsec_millis() % 250) as u64;
+                        let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)) + jitter);
+                        tokio::time::sleep(delay).await;
+                        continue;
+                    } else {
+                        let text = resp.text().await.unwrap_or_default();
+                        return Err(anyhow!("judge request failed with status {status}: {text}"));
+                    }
+                }
+                Err(_err) if attempts < max_attempts => {
+                    let jitter = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().subsec_millis() % 250) as u64;
+                    let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)) + jitter);
+                    tokio::time::sleep(delay).await;
+                    continue;
+                }
+                Err(err) => {
+                    return Err(anyhow!("judge request to {url} failed: {err:#}"));
+                }
+            }
         }
-
-        let response = builder
-            .send()
-            .await
-            .with_context(|| format!("judge request to {url} failed"))?;
-        let status = response.status();
-        let text = response
-            .text()
-            .await
-            .context("failed to read judge response body")?;
-
-        if !status.is_success() {
-            return Err(anyhow!(
-                "judge request failed with status {status}: {text}"
-            ));
-        }
-
-        let value: serde_json::Value = serde_json::from_str(&text)
-            .with_context(|| format!("judge response was not valid JSON: {text}"))?;
-        let content = value
-            .get("choices")
-            .and_then(|choices| choices.get(0))
-            .and_then(|choice| choice.get("message"))
-            .and_then(|message| message.get("content"))
-            .and_then(|content| content.as_str())
-            .ok_or_else(|| anyhow!("judge response missing choices[0].message.content"))?;
-
-        let stripped = strip_code_fences(content);
-        let mut scores: JudgeScores = serde_json::from_str(stripped)
-            .with_context(|| format!("judge content was not valid JudgeScores: {stripped}"))?;
-
-        scores.formality_compliance = scores.formality_compliance.clamp(0.0, 5.0);
-        scores.gender_agreement = scores.gender_agreement.clamp(0.0, 5.0);
-        scores.dialect_authenticity = scores.dialect_authenticity.clamp(0.0, 5.0);
-        scores.naturalness_fluency = scores.naturalness_fluency.clamp(0.0, 5.0);
-
-        Ok(scores)
     }
 }
 
