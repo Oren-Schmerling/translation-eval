@@ -9,12 +9,26 @@ import { OpenRouterFreeQueue } from './providers/openrouter-free-queue';
 import { buildRequestsForSuite, loadDataset } from './suite';
 import { ProbedModel, ProbedRoster, RunRecord, SuiteType, TelemetryEnvelope } from './types';
 
+function resolveJudgeModelSlug(name: string): string {
+  const n = name.trim().toLowerCase();
+  if (n === 'sonnet 5.5' || n === 'sonnet-5.5' || n === 'claude-sonnet-5.5' || n.includes('claude-sonnet-5.5')) return 'anthropic/claude-sonnet-5.5';
+  if (n === 'haiku 5.5' || n === 'haiku-5.5' || n === 'haiku' || n === 'claude-haiku-5.5' || n.includes('claude-haiku-5.5')) return 'anthropic/claude-haiku-5.5';
+  if (n === 'qwen3.8 flash' || n === 'qwen3.8-flash' || n.includes('qwen3.8-flash')) return 'qwen/qwen3.8-flash';
+  if (n === 'glm 5.3 flash' || n === 'glm-5.3-flash' || n === 'glm' || n.includes('glm-5.3-flash')) return 'z-ai/glm-5.3-flash';
+  if (n === 'deepseek 4.1 flash' || n === 'deepseek flash' || n === 'deepseek-4.1-flash' || n === 'deepseek-v4.1-flash' || n.includes('deepseek-v4.1-flash')) return 'deepseek/deepseek-v4.1-flash';
+  if (n === 'tencent hy3' || n === 'tencent-hy3' || n === 'hy3' || n.includes('tencent/hy3')) return 'tencent/hy3';
+  if (n === 'tencent hy-mt2-30b-a3b' || n.includes('hy-mt2-30b-a3b')) return 'tencent/hy-mt2-30b-a3b';
+  return name.trim();
+}
+
 function parseArgs() {
   const args = process.argv.slice(2);
   let probeOnly = false;
   let preferBatch = false;
   let withJudges = false;
   let judgesConfig: string | undefined;
+  let judgeModels: string[] | undefined;
+  let modelFilter: string[] | undefined;
   let ceilingModel: string | undefined;
   let suite: SuiteType = 'smoke';
 
@@ -22,11 +36,18 @@ function parseArgs() {
     if (arg === '--probe-only') probeOnly = true;
     else if (arg === '--prefer-batch') preferBatch = true;
     else if (arg === '--with-judges' || arg === '--judges') withJudges = true;
+    else if (arg.startsWith('--judges=')) {
+      withJudges = true;
+      judgeModels = arg.slice('--judges='.length).split(',').map((s) => resolveJudgeModelSlug(s.trim())).filter(Boolean);
+    }
+    else if (arg.startsWith('--models=')) {
+      modelFilter = arg.slice('--models='.length).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+    }
     else if (arg.startsWith('--judges-config=')) judgesConfig = arg.slice('--judges-config='.length);
     else if (arg.startsWith('--ceiling-model=')) ceilingModel = arg.slice('--ceiling-model='.length);
     else if (arg.startsWith('--suite=')) suite = arg.slice('--suite='.length) as SuiteType;
   }
-  return { probeOnly, preferBatch, withJudges, judgesConfig, ceilingModel, suite };
+  return { probeOnly, preferBatch, withJudges, judgesConfig, judgeModels, modelFilter, ceilingModel, suite };
 }
 
 function printRoutingTable(roster: ProbedRoster) {
@@ -117,7 +138,7 @@ function createRunRecord(
 }
 
 async function main() {
-  const { probeOnly, preferBatch, withJudges, judgesConfig, ceilingModel, suite } = parseArgs();
+  const { probeOnly, preferBatch, withJudges, judgesConfig, judgeModels, modelFilter, ceilingModel, suite } = parseArgs();
   console.log(`Running translation-eval [suite=${suite}, preferBatch=${preferBatch}]...`);
 
   const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_STUDIO_API_KEY || '';
@@ -151,7 +172,18 @@ async function main() {
 
   let totalItemsCompleted = 0;
 
-  for (const model of roster.active_roster) {
+  let activeModels = roster.active_roster;
+  if (modelFilter && modelFilter.length > 0) {
+    activeModels = roster.active_roster.filter((m) => {
+      return modelFilter.some((pat) => {
+        return m.id.toLowerCase().includes(pat) || m.modelSlug.toLowerCase().includes(pat);
+      });
+    });
+    console.log(`Filtered to ${activeModels.length} models matching [${modelFilter.join(', ')}]:`);
+    for (const m of activeModels) console.log(`  - ${m.id}`);
+  }
+
+  for (const model of activeModels) {
     console.log(`\n>>> Executing model: ${model.id} [mode=${model.mode}]`);
     const requests = buildRequestsForSuite(dataset, model.id, suite);
     const existingCheckpoints = freeQueue.loadExistingCheckpoints(model.provider, model.modelSlug);
@@ -275,19 +307,30 @@ async function main() {
     let configPath = judgesConfig;
     if (!configPath) {
       configPath = path.join(resultsDir, `judges_${suite}.json`);
+      const defaultJudges = [
+        'anthropic/claude-haiku-5.5',
+        'deepseek/deepseek-v4.1-flash',
+      ];
+      const models = judgeModels && judgeModels.length > 0 ? judgeModels : defaultJudges;
       const judgePayload = {
+        judges: models.map((m) => ({
+          base_url: 'https://openrouter.ai/api/v1',
+          api_key: orKey,
+          model: m,
+        })),
         judge_a: {
           base_url: 'https://openrouter.ai/api/v1',
           api_key: orKey,
-          model: 'anthropic/claude-haiku-5.5',
+          model: models[0],
         },
         judge_b: {
           base_url: 'https://openrouter.ai/api/v1',
           api_key: orKey,
-          model: 'deepseek/deepseek-v4.1-flash',
+          model: models[1] || models[0],
         },
       };
       fs.writeFileSync(configPath, JSON.stringify(judgePayload, null, 2), 'utf8');
+      console.log(`Configured ${models.length} judges: ${models.join(', ')}`);
     }
     gradeArgs.push('--judges-config', configPath);
   }
