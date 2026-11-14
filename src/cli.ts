@@ -88,11 +88,10 @@ function printRoutingTable(roster: ProbedRoster) {
     for (const m of roster.openrouter.mt_specialists) console.log(`  - ${m}`);
   }
 
-  console.log('\n[E] Verified OpenRouter :free Models (3.15s Pacer Queue)');
-  if (roster.openrouter.free_models.length === 0) {
-    console.log('  (none passing)');
+  if (roster.openrouter.free_models && roster.openrouter.free_models.length > 0) {
+    console.log('\n[E] Verified OpenRouter :free Models');
+    for (const m of roster.openrouter.free_models) console.log(`  - ${m}`);
   }
-  for (const m of roster.openrouter.free_models) console.log(`  - ${m}`);
 
   console.log('\n========================================================================================');
   console.log(`Total Active Models: ${roster.active_roster.length}`);
@@ -254,7 +253,7 @@ async function main() {
         }
       }
     } else {
-      // Item by item execution (Stream or Free Queue)
+      // Item by item execution (Stream)
       for (const req of pendingRequests) {
         try {
           let env: TelemetryEnvelope;
@@ -270,8 +269,6 @@ async function main() {
                 throw err;
               }
             }
-          } else if (model.mode === 'free_queue') {
-            env = await freeQueue.translate(model.modelSlug, req);
           } else {
             env = await orRunner.translate(model.modelSlug, req, model.pricing);
           }

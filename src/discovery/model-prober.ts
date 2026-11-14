@@ -1,4 +1,4 @@
-import { ProbedModel, ProbedRoster } from '../types';
+import { ModelPricing, ProbedModel, ProbedRoster } from '../types';
 
 export interface ProberOptions {
   geminiApiKey?: string;
@@ -102,97 +102,7 @@ export async function probeGoogleAiStudioModel(
   }
 }
 
-export async function probeFreeModel(
-  modelId: string,
-  apiKey: string,
-  sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-): Promise<boolean> {
-  const tests: Array<{ lang: 'gu' | 'he' | 'vi'; text: string }> = [
-    { lang: 'gu', text: 'Translate to Gujarati: Good morning.' },
-    { lang: 'he', text: 'Translate to Hebrew: Good morning.' },
-    { lang: 'vi', text: 'Translate to Vietnamese: Good morning.' },
-  ];
 
-  for (const test of tests) {
-    let passed = false;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        let resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: modelId,
-            messages: [{ role: 'user', content: test.text }],
-            max_tokens: 25,
-            reasoning: { effort: 'none' },
-          }),
-          signal: AbortSignal.timeout(12_000),
-        });
-
-        if (!resp.ok && resp.status === 400) {
-          resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: modelId,
-              messages: [{ role: 'user', content: test.text }],
-              max_tokens: 25,
-            }),
-            signal: AbortSignal.timeout(12_000),
-          });
-        }
-
-        if (resp.status === 404) {
-          const errText = await resp.text();
-          if (errText.includes('use this slug instead:')) {
-            const redirectSlug = errText.split('use this slug instead:')[1]?.trim()?.split(/[\s,"']/)[0];
-            if (redirectSlug) {
-              resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  model: redirectSlug,
-                  messages: [{ role: 'user', content: test.text }],
-                  max_tokens: 50,
-                  reasoning: { effort: 'none' },
-                }),
-                signal: AbortSignal.timeout(12_000),
-              });
-            }
-          } else {
-            return false;
-          }
-        }
-
-        if (resp.status === 403) return false;
-        if (resp.status === 429 || resp.status === 503) {
-          await sleep(3500);
-          continue;
-        }
-
-        if (resp.ok) {
-          const data: any = await resp.json();
-          const content = data?.choices?.[0]?.message?.content || '';
-          if (matchesScript(test.lang, content)) {
-            passed = true;
-            break;
-          }
-        }
-      } catch {
-        await sleep(3500);
-      }
-    }
-    if (!passed) return false;
-    await sleep(3150);
-  }
-  return true;
-}
 
 export async function probeAndResolveRoster(opts: ProberOptions): Promise<ProbedRoster> {
   const geminiKey = opts.geminiApiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_STUDIO_API_KEY || '';
@@ -323,7 +233,6 @@ export async function probeAndResolveRoster(opts: ProberOptions): Promise<Probed
     const raw = failed.model;
     const potentialSlugs = [
       preferBatch ? `google/${raw}:batch` : null,
-      `google/${raw}:free`,
       `google/${raw}`,
     ].filter(Boolean) as string[];
 
@@ -346,7 +255,7 @@ export async function probeAndResolveRoster(opts: ProberOptions): Promise<Probed
         id: `openrouter:${matched.id}`,
         modelSlug: matched.id,
         provider: 'openrouter',
-        mode: matched.id.endsWith(':free') ? 'free_queue' : matched.id.endsWith(':batch') ? 'batch' : 'stream',
+        mode: matched.id.endsWith(':batch') ? 'batch' : 'stream',
         bucket: 'fallback',
         pricing: { inputPerM: inCost, outputPerM: outCost },
         isExpensive: expensive,
@@ -404,47 +313,6 @@ export async function probeAndResolveRoster(opts: ProberOptions): Promise<Probed
         mode: 'stream',
         bucket: 'mt_specialist',
         pricing: { inputPerM: inCost, outputPerM: outCost },
-      });
-    }
-  }
-
-  // Bucket 4: Complete OpenRouter :free Models Discovery & Micro-Probe
-  const rawFreeModels = orModels.filter((m) => {
-    const isFree = m.id.endsWith(':free') || (m.pricing?.prompt === '0' && m.pricing?.completion === '0');
-    if (!isFree) return false;
-    if (m.id.includes('openrouter/free') || m.id.includes('content-safety') || m.id.includes('lyria')) return false;
-    if (m.architecture?.modality && !m.architecture.modality.includes('text->text')) return false;
-    if (/gemma-4-.*:free/.test(m.id)) {
-      const base = m.id.replace('google/', '').replace(':free', '');
-      if (lockedAiStudioSlugs.has(base)) return false;
-    }
-    return true;
-  });
-
-  // Ensure tencent/hy3:free is evaluated in Bucket 4
-  if (!rawFreeModels.some((m) => m.id === 'tencent/hy3:free')) {
-    rawFreeModels.push({ id: 'tencent/hy3:free', pricing: { prompt: '0', completion: '0' } });
-  }
-
-  console.log(`[Phase 1B] Discovered ${rawFreeModels.length} OpenRouter :free models to micro-probe...`);
-
-  for (const fm of rawFreeModels) {
-    if (roster.active_roster.some((ar) => ar.modelSlug === fm.id)) continue;
-    let passes = true;
-    if (!opts.skipMicroProbe && orKey) {
-      console.log(`  - Micro-probing :free model ${fm.id}...`);
-      passes = await probeFreeModel(fm.id, orKey);
-      console.log(`    Result: ${passes ? 'PASSED (promoted)' : 'DROPPED'}`);
-    }
-    if (passes) {
-      roster.openrouter.free_models.push(fm.id);
-      roster.active_roster.push({
-        id: `openrouter:${fm.id}`,
-        modelSlug: fm.id,
-        provider: 'openrouter',
-        mode: 'free_queue',
-        bucket: 'free',
-        pricing: { inputPerM: 0, outputPerM: 0 },
       });
     }
   }

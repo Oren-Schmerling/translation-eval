@@ -75,7 +75,7 @@ describe('Pragmatic MT Prober & Roster Resolver', () => {
       if (u.includes('openrouter.ai/api/v1/models')) {
         return new Response(JSON.stringify({
           data: [
-            { id: 'google/gemma-4-31b-it:free', pricing: { prompt: '0', completion: '0' } },
+            { id: 'google/gemma-4-31b-it', pricing: { prompt: '0.00000007', completion: '0.0000003' } },
             { id: 'anthropic/claude-sonnet-5.5', pricing: { prompt: '0.000002', completion: '0.00001' } },
           ],
         }), { status: 200 });
@@ -92,9 +92,9 @@ describe('Pragmatic MT Prober & Roster Resolver', () => {
     const failed = roster.ai_studio.failed.find((f) => f.model === 'gemma-4-31b-it');
     expect(failed).toBeDefined();
 
-    // Fallback routed to OpenRouter :free variant
-    expect(roster.openrouter.fallbacks).toContain('google/gemma-4-31b-it:free');
-    const orFallback = roster.active_roster.find((m) => m.modelSlug === 'google/gemma-4-31b-it:free');
+    // Fallback routed to OpenRouter paid variant
+    expect(roster.openrouter.fallbacks).toContain('google/gemma-4-31b-it');
+    const orFallback = roster.active_roster.find((m) => m.modelSlug === 'google/gemma-4-31b-it');
     expect(orFallback).toBeDefined();
     expect(orFallback?.provider).toBe('openrouter');
   });
@@ -253,8 +253,8 @@ describe('Pragmatic MT Prober & Roster Resolver', () => {
     expect(matchesScript('vi', 'Good morning')).toBe(false);
   });
 
-  // Test 6: Bucket 3B Dedicated MT Specialists (tencent/hy-mt2-*) and tencent/hy3:free
-  it('discovers Bucket 3B MT specialists and tencent/hy3:free in OpenRouter roster', async () => {
+  // Test 6: Bucket 3B Dedicated MT Specialists (tencent/hy-mt2-*) and paid models only
+  it('discovers Bucket 3B MT specialists and excludes all free models', async () => {
     globalThis.fetch = async (url: string | URL | Request) => {
       const u = url.toString();
       if (u.includes('generativelanguage.googleapis.com/v1beta/models?')) {
@@ -268,6 +268,7 @@ describe('Pragmatic MT Prober & Roster Resolver', () => {
             { id: 'tencent/hy-mt2-7b', pricing: { prompt: '0.000000074', completion: '0.000000295' } },
             { id: 'tencent/hy-mt2-1.8b', pricing: { prompt: '0.000000044', completion: '0.000000177' } },
             { id: 'tencent/hy3:free', pricing: { prompt: '0', completion: '0' } },
+            { id: 'mock/no-paid:free', pricing: { prompt: '0', completion: '0' } },
           ],
         }), { status: 200 });
       }
@@ -292,7 +293,12 @@ describe('Pragmatic MT Prober & Roster Resolver', () => {
       'tencent/hy-mt2-7b',
       'tencent/hy-mt2-1.8b',
     ]);
-    expect(roster.openrouter.free_models).toContain('tencent/hy3:free');
+
+    // Free models are completely excluded; all active models must have non-zero pricing
+    expect(roster.active_roster.some((m) => m.modelSlug.endsWith(':free'))).toBe(false);
+    expect(roster.active_roster.some((m) => m.bucket === 'free')).toBe(false);
+    expect(roster.active_roster.every((m) => m.pricing.inputPerM > 0 && m.pricing.outputPerM > 0)).toBe(true);
+    expect(roster.openrouter.free_models).toEqual([]);
   });
 });
 

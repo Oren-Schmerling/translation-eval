@@ -118,8 +118,8 @@ export interface ProbedModel {
   id: string;
   modelSlug: string;
   provider: 'google-ai-studio' | 'openrouter';
-  mode: 'stream' | 'batch' | 'free_queue';
-  bucket: 'ai_studio' | 'fallback' | 'ceiling' | 'contender' | 'mt_specialist' | 'free';
+  mode: 'stream' | 'batch';
+  bucket: 'ai_studio' | 'fallback' | 'ceiling' | 'contender' | 'mt_specialist';
   pricing: ModelPricing;
   isExpensive?: boolean;
 }

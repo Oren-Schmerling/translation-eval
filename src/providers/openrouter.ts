@@ -196,7 +196,7 @@ export class OpenRouterRunner {
     const batchId = batchData.id;
 
     // Poll until completed (or fallback if pending too long)
-    const maxWaitMs = 6_000; // 6s timeout before interactive fallback
+    const maxWaitMs = 600_000; // 10 minutes timeout before interactive fallback
     const pollStart = Date.now();
     let status = batchData.status;
 
