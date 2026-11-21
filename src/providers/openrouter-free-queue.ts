@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { buildPromptText, buildSystemPrompt, cleanTranslationResponse } from '../prompt';
+import { assertModelAllowedForLanguage, normalizeMessagesForModel } from '../routing/model-router';
 import { RunRecord, TelemetryEnvelope, TranslationRequest } from '../types';
 
 export interface FreeQueueOptions {
@@ -8,6 +9,15 @@ export interface FreeQueueOptions {
   suite: string;
   minIntervalMs?: number; // default 3150ms
   checkpointDir?: string; // default results/checkpoints
+}
+
+export function makeCheckpointKey(
+  providerId: string,
+  tier: string,
+  itemId: string,
+  variantId: string
+): string {
+  return `${providerId}::${tier}::${itemId}::${variantId}`;
 }
 
 export class OpenRouterFreeQueue {
@@ -18,6 +28,7 @@ export class OpenRouterFreeQueue {
   private lastRequestTime = 0;
   private dailyRequestCount = 0;
   private readonly maxRpd = 1000;
+  private persistedKeys = new Set<string>();
 
   constructor(opts: FreeQueueOptions) {
     this.apiKey = opts.apiKey;
@@ -47,8 +58,16 @@ export class OpenRouterFreeQueue {
       if (!trimmed) continue;
       try {
         const record = JSON.parse(trimmed) as RunRecord;
-        const key = `${record.provider_id}::${record.tier}::${record.variant_id}`;
-        existing.set(key, record);
+        const key = makeCheckpointKey(
+          record.provider_id,
+          record.tier,
+          record.item_id,
+          record.variant_id
+        );
+        if (!existing.has(key)) {
+          existing.set(key, record);
+          this.persistedKeys.add(key);
+        }
       } catch {
         // ignore partial line
       }
@@ -56,9 +75,20 @@ export class OpenRouterFreeQueue {
     return existing;
   }
 
-  appendCheckpoint(providerId: string, model: string, record: RunRecord): void {
+  appendCheckpoint(providerId: string, model: string, record: RunRecord): boolean {
+    const key = makeCheckpointKey(
+      record.provider_id,
+      record.tier,
+      record.item_id,
+      record.variant_id
+    );
+    if (this.persistedKeys.has(key)) {
+      return false; // Skip duplicate checkpoint persistence
+    }
+    this.persistedKeys.add(key);
     const filePath = this.getCheckpointPath(providerId, model);
     fs.appendFileSync(filePath, JSON.stringify(record) + '\n', 'utf8');
+    return true;
   }
 
   private async pace(): Promise<void> {
@@ -76,6 +106,8 @@ export class OpenRouterFreeQueue {
   }
 
   async translate(model: string, req: TranslationRequest): Promise<TelemetryEnvelope> {
+    assertModelAllowedForLanguage(req.lang, model);
+
     let backoffMs = 3500;
     const maxRetries = 3;
 
@@ -84,13 +116,11 @@ export class OpenRouterFreeQueue {
       const startTime = performance.now();
       const systemPrompt = buildSystemPrompt(req.tier);
       const userPrompt = buildPromptText(req);
+      const messages = normalizeMessagesForModel(model, systemPrompt, userPrompt, req.tier.startsWith('tier3'));
 
       const makeBody = (withReasoning: boolean) => ({
         model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
+        messages,
         max_tokens: 1024,
         ...(withReasoning ? { reasoning: { effort: 'none' } } : {}),
       });
@@ -121,15 +151,13 @@ export class OpenRouterFreeQueue {
           if (errText.includes('use this slug instead:')) {
             const redirectSlug = errText.split('use this slug instead:')[1]?.trim()?.split(/[\s,"']/)[0];
             if (redirectSlug) {
+              const redirectMsgs = normalizeMessagesForModel(redirectSlug, systemPrompt, userPrompt, req.tier.startsWith('tier3'));
               resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
                 method: 'POST',
                 headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   model: redirectSlug,
-                  messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: userPrompt },
-                  ],
+                  messages: redirectMsgs,
                   max_tokens: 1024,
                   reasoning: { effort: 'none' },
                 }),

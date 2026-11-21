@@ -42,6 +42,7 @@ export interface TargetVariant {
   conflict_override?: CoarseDimensions | null;
   gold_reference: string;
   anchors: ComplianceAnchors;
+  track?: string;
 }
 
 export interface FewShotExample {
@@ -63,6 +64,7 @@ export interface TranslationRequest {
   examples: FewShotExample[];
   gold_reference: string;
   anchors: ComplianceAnchors;
+  track?: string;
 }
 
 export interface TelemetryEnvelope {

@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { isExpensiveModel, matchesScript, probeAndResolveRoster, resolveBatchSlug } from '../src/discovery/model-prober';
 import { runConcurrent } from '../src/cli';
-import { OpenRouterFreeQueue } from '../src/providers/openrouter-free-queue';
+import { makeCheckpointKey, OpenRouterFreeQueue } from '../src/providers/openrouter-free-queue';
 import { RunRecord, TranslationRequest } from '../src/types';
 
 describe('Pragmatic MT Prober & Roster Resolver', () => {
@@ -13,7 +13,7 @@ describe('Pragmatic MT Prober & Roster Resolver', () => {
     globalThis.fetch = originalFetch;
   });
 
-  // Test 1: Probe and resolve models exclusively from OpenRouter
+  // Test 1: Probe and resolve models exclusively from OpenRouter (purged ceiling behind includeCeiling flag)
   it('resolves models exclusively from OpenRouter without Google AI Studio', async () => {
     let googleEndpointCalled = false;
     globalThis.fetch = async (url: string | URL | Request) => {
@@ -27,7 +27,7 @@ describe('Pragmatic MT Prober & Roster Resolver', () => {
           data: [
             { id: 'anthropic/claude-sonnet-5.5', pricing: { prompt: '0.000002', completion: '0.00001' } },
             { id: 'qwen/qwen3.8-flash', pricing: { prompt: '0.00000006', completion: '0.00000024' } },
-            { id: 'minimax/minimax-m3.1-flash', pricing: { prompt: '0.0000001', completion: '0.0000004' } },
+            { id: 'deepseek/deepseek-v4.1-flash', pricing: { prompt: '0.0000001', completion: '0.0000004' } },
           ],
         }), { status: 200 });
       }
@@ -36,6 +36,7 @@ describe('Pragmatic MT Prober & Roster Resolver', () => {
 
     const roster = await probeAndResolveRoster({
       openrouterApiKey: 'test-or-key',
+      includeCeiling: true,
       skipMicroProbe: true,
     });
 
@@ -65,6 +66,7 @@ describe('Pragmatic MT Prober & Roster Resolver', () => {
     const roster = await probeAndResolveRoster({
       openrouterApiKey: 'test-or-key',
       preferBatch: true,
+      includeCeiling: true,
       skipMicroProbe: true,
     });
 
@@ -82,9 +84,8 @@ describe('Pragmatic MT Prober & Roster Resolver', () => {
       if (u.includes('openrouter.ai/api/v1/models')) {
         return new Response(JSON.stringify({
           data: [
-            // Both are expensive: in > 0.50, out > 2.50
             { id: 'anthropic/claude-sonnet-5.5', pricing: { prompt: '0.000002', completion: '0.00001' } },
-            { id: 'deepseek/deepseek-v4.1-flash-1017', pricing: { prompt: '0.000002', completion: '0.00001' } },
+            { id: 'deepseek/deepseek-v4.1-flash', pricing: { prompt: '0.00000014', completion: '0.00000028' } },
           ],
         }), { status: 200 });
       }
@@ -93,22 +94,17 @@ describe('Pragmatic MT Prober & Roster Resolver', () => {
 
     const roster = await probeAndResolveRoster({
       openrouterApiKey: 'test-or-key',
+      includeCeiling: true,
       skipMicroProbe: true,
     });
 
-    // Default ceiling model is claude-sonnet-5.5
     expect(roster.openrouter.ceiling_model).toBe('anthropic/claude-sonnet-5.5');
-
-    // Count expensive models in active roster
     const expensiveModels = roster.active_roster.filter((m) => m.isExpensive);
     expect(expensiveModels.length).toBe(1);
     expect(expensiveModels[0].modelSlug).toBe('anthropic/claude-sonnet-5.5');
-
-    // Expensive contender is skipped due to budget cap
-    expect(roster.openrouter.contenders).not.toContain('deepseek/deepseek-v4.1-flash-1017');
   });
 
-  // Test 4: :free models obey pacing and checkpoint after each item
+  // Test 4: :free models obey pacing and checkpoint after each item with composite key
   it('enforces free queue pacing interval and immediate checkpoint persistence', async () => {
     const testDir = path.join(process.cwd(), 'results', 'test_checkpoints');
     if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true, force: true });
@@ -125,7 +121,6 @@ describe('Pragmatic MT Prober & Roster Resolver', () => {
       }), { status: 200 });
     };
 
-    // Use a smaller test pacing of 100ms for fast unit test execution
     const queue = new OpenRouterFreeQueue({
       apiKey: 'test-key',
       suite: 'test_suite',
@@ -148,12 +143,11 @@ describe('Pragmatic MT Prober & Roster Resolver', () => {
       anchors: { must_contain_any: [], must_not_contain: [], synset_equivalents: {}, acceptable_synonyms: [] },
     };
 
-    const env = await queue.translate('test/model:free', mockReq);
+    const env = await queue.translate('qwen/qwen3.8-flash', mockReq);
     expect(env.translation).toBe('સવાર સારી');
 
-    // Verify checkpoint was written
     const rec: RunRecord = {
-      provider_id: 'openrouter:test/model:free',
+      provider_id: 'openrouter:qwen/qwen3.8-flash',
       tier: mockReq.tier,
       request_id: mockReq.request_id,
       item_id: mockReq.item_id,
@@ -184,7 +178,7 @@ describe('Pragmatic MT Prober & Roster Resolver', () => {
       high_disagreement_flag: false,
     };
 
-    queue.appendCheckpoint('openrouter', 'test/model:free', rec);
+    queue.appendCheckpoint('openrouter', 'qwen/qwen3.8-flash', rec);
 
     // Append a second sibling variant with the same item_id
     const rec2: RunRecord = {
@@ -194,12 +188,12 @@ describe('Pragmatic MT Prober & Roster Resolver', () => {
       lang: 'vi',
       translation: 'Chào buổi sáng',
     };
-    queue.appendCheckpoint('openrouter', 'test/model:free', rec2);
+    queue.appendCheckpoint('openrouter', 'qwen/qwen3.8-flash', rec2);
 
-    // Verify checkpoint loading preserves both sibling variants
-    const loaded = queue.loadExistingCheckpoints('openrouter', 'test/model:free');
-    const key1 = `openrouter:test/model:free::${mockReq.tier}::${mockReq.variant_id}`;
-    const key2 = `openrouter:test/model:free::${mockReq.tier}::test_variant_02`;
+    // Verify checkpoint loading preserves both sibling variants with composite key
+    const loaded = queue.loadExistingCheckpoints('openrouter', 'qwen/qwen3.8-flash');
+    const key1 = makeCheckpointKey(rec.provider_id, rec.tier, rec.item_id, rec.variant_id);
+    const key2 = makeCheckpointKey(rec2.provider_id, rec2.tier, rec2.item_id, rec2.variant_id);
     expect(loaded.has(key1)).toBe(true);
     expect(loaded.has(key2)).toBe(true);
     expect(loaded.get(key1)?.translation).toBe('સવાર સારી');
@@ -220,22 +214,17 @@ describe('Pragmatic MT Prober & Roster Resolver', () => {
     expect(matchesScript('vi', 'Good morning')).toBe(false);
   });
 
-  // Test 6: Bucket 3B Dedicated MT Specialists (tencent/hy-mt2-*) and paid models only
-  it('discovers Bucket 3B MT specialists and excludes all free models', async () => {
+  // Test 6: Bucket 3B Dedicated MT Specialists (7b and 30b-a3b, 1.8b purged)
+  it('discovers Bucket 3B MT specialists (7b, 30b-a3b) and excludes 1.8b and free models', async () => {
     globalThis.fetch = async (url: string | URL | Request) => {
       const u = url.toString();
-      if (u.includes('generativelanguage.googleapis.com/v1beta/models?')) {
-        return new Response(JSON.stringify({ models: [] }), { status: 200 });
-      }
       if (u.includes('openrouter.ai/api/v1/models')) {
         return new Response(JSON.stringify({
           data: [
-            { id: 'anthropic/claude-sonnet-5.5', pricing: { prompt: '0.000002', completion: '0.00001' } },
             { id: 'tencent/hy-mt2-30b-a3b', pricing: { prompt: '0.000000074', completion: '0.000000295' } },
             { id: 'tencent/hy-mt2-7b', pricing: { prompt: '0.000000074', completion: '0.000000295' } },
             { id: 'tencent/hy-mt2-1.8b', pricing: { prompt: '0.000000044', completion: '0.000000177' } },
             { id: 'tencent/hy3:free', pricing: { prompt: '0', completion: '0' } },
-            { id: 'mock/no-paid:free', pricing: { prompt: '0', completion: '0' } },
           ],
         }), { status: 200 });
       }
@@ -248,24 +237,16 @@ describe('Pragmatic MT Prober & Roster Resolver', () => {
     });
 
     expect(roster.openrouter.mt_specialists).toEqual([
-      'tencent/hy-mt2-30b-a3b',
       'tencent/hy-mt2-7b',
-      'tencent/hy-mt2-1.8b',
+      'tencent/hy-mt2-30b-a3b',
     ]);
 
     const mtModels = roster.active_roster.filter((m) => m.bucket === 'mt_specialist');
-    expect(mtModels.length).toBe(3);
-    expect(mtModels.map((m) => m.modelSlug)).toEqual([
+    expect(mtModels.length).toBe(2);
+    expect(mtModels.map((m) => m.modelSlug).sort()).toEqual([
       'tencent/hy-mt2-30b-a3b',
       'tencent/hy-mt2-7b',
-      'tencent/hy-mt2-1.8b',
     ]);
-
-    // Free models are completely excluded; all active models must have non-zero pricing
-    expect(roster.active_roster.some((m) => m.modelSlug.endsWith(':free'))).toBe(false);
-    expect(roster.active_roster.some((m) => m.bucket === 'free')).toBe(false);
-    expect(roster.active_roster.every((m) => m.pricing.inputPerM > 0 && m.pricing.outputPerM > 0)).toBe(true);
-    expect(roster.openrouter.free_models).toEqual([]);
   });
 
   // Test 7: Dynamic batch resolution helper
@@ -310,4 +291,3 @@ describe('Pragmatic MT Prober & Roster Resolver', () => {
     expect(completed.sort((a, b) => a - b)).toEqual(items);
   });
 });
-

@@ -1,0 +1,6 @@
+{"item_id": "sanity_he_01_acc", "lang": "he", "source": "Good morning, how are you today?", "reference": "בוקר טוב, מה שלומך היום?", "hypothesis": "בוקר טוב, מה שלומך היום?"}
+{"item_id": "sanity_he_01_bad", "lang": "he", "source": "Good morning, how are you today?", "reference": "בוקר טוב, מה שלומך היום?", "hypothesis": "Good morning xyz completely garbled gibberish 123456"}
+{"item_id": "sanity_gu_01_acc", "lang": "gu", "source": "Where are you going?", "reference": "તમે ક્યાં જઈ રહ્યા છો?", "hypothesis": "તમે ક્યાં જઈ રહ્યા છો?"}
+{"item_id": "sanity_gu_01_bad", "lang": "gu", "source": "Where are you going?", "reference": "તમે ક્યાં જઈ રહ્યા છો?", "hypothesis": "અસબદફ ૧૨૩ ખોટું લખાણ nonsense"}
+{"item_id": "sanity_vi_01_acc", "lang": "vi", "source": "Thank you very much, see you again.", "reference": "Cảm ơn bạn rất nhiều, hẹn gặp lại.", "hypothesis": "Cảm ơn bạn rất nhiều, hẹn gặp lại."}
+{"item_id": "sanity_vi_01_bad", "lang": "vi", "source": "Thank you very much, see you again.", "reference": "Cảm ơn bạn rất nhiều, hẹn gặp lại.", "hypothesis": "Xyz abc rác rưởi không nghĩa 9999"}

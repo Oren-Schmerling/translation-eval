@@ -1,36 +1,31 @@
 {
-  "timestamp": "2026-11-14T03:59:38.696Z",
+  "timestamp": "2026-11-21T17:57:44.330Z",
   "openrouter": {
     "fallbacks": [],
-    "ceiling_model": "anthropic/claude-sonnet-5.5:batch",
+    "ceiling_model": null,
     "contenders": [
-      "anthropic/claude-haiku-5.5:batch",
       "deepseek/deepseek-v4.1-flash:batch",
-      "qwen/qwen3.8-flash",
-      "qwen/qwen3.8-27b:batch",
+      "anthropic/claude-haiku-5.5:batch",
       "z-ai/glm-5.3-flash:batch",
-      "minimax/minimax-m3.1-flash"
+      "qwen/qwen3.8-flash"
     ],
     "free_models": [],
     "mt_specialists": [
-      "tencent/hy-mt2-30b-a3b",
       "tencent/hy-mt2-7b",
-      "tencent/hy-mt2-1.8b"
+      "tencent/hy-mt2-30b-a3b"
     ]
   },
   "active_roster": [
     {
-      "id": "openrouter:anthropic/claude-sonnet-5.5:batch",
-      "modelSlug": "anthropic/claude-sonnet-5.5:batch",
+      "id": "openrouter:deepseek/deepseek-v4.1-flash:batch",
+      "modelSlug": "deepseek/deepseek-v4.1-flash:batch",
       "provider": "openrouter",
       "mode": "batch",
-      "bucket": "ceiling",
+      "bucket": "contender",
       "pricing": {
-        "inputPerM": 1,
-        "outputPerM": 5,
-        "cachedReadPerM": 0.1
-      },
-      "isExpensive": true
+        "inputPerM": 0.049999999999999996,
+        "outputPerM": 0.15
+      }
     },
     {
       "id": "openrouter:anthropic/claude-haiku-5.5:batch",
@@ -44,14 +39,14 @@
       }
     },
     {
-      "id": "openrouter:deepseek/deepseek-v4.1-flash:batch",
-      "modelSlug": "deepseek/deepseek-v4.1-flash:batch",
+      "id": "openrouter:z-ai/glm-5.3-flash:batch",
+      "modelSlug": "z-ai/glm-5.3-flash:batch",
       "provider": "openrouter",
       "mode": "batch",
       "bucket": "contender",
       "pricing": {
-        "inputPerM": 0.112,
-        "outputPerM": 0.33599999999999997
+        "inputPerM": 0.023,
+        "outputPerM": 0.068
       }
     },
     {
@@ -66,50 +61,6 @@
       }
     },
     {
-      "id": "openrouter:qwen/qwen3.8-27b:batch",
-      "modelSlug": "qwen/qwen3.8-27b:batch",
-      "provider": "openrouter",
-      "mode": "batch",
-      "bucket": "contender",
-      "pricing": {
-        "inputPerM": 0.16,
-        "outputPerM": 2
-      }
-    },
-    {
-      "id": "openrouter:z-ai/glm-5.3-flash:batch",
-      "modelSlug": "z-ai/glm-5.3-flash:batch",
-      "provider": "openrouter",
-      "mode": "batch",
-      "bucket": "contender",
-      "pricing": {
-        "inputPerM": 0.049999999999999996,
-        "outputPerM": 0.18
-      }
-    },
-    {
-      "id": "openrouter:minimax/minimax-m3.1-flash",
-      "modelSlug": "minimax/minimax-m3.1-flash",
-      "provider": "openrouter",
-      "mode": "stream",
-      "bucket": "contender",
-      "pricing": {
-        "inputPerM": 0.15,
-        "outputPerM": 0.6
-      }
-    },
-    {
-      "id": "openrouter:tencent/hy-mt2-30b-a3b",
-      "modelSlug": "tencent/hy-mt2-30b-a3b",
-      "provider": "openrouter",
-      "mode": "stream",
-      "bucket": "mt_specialist",
-      "pricing": {
-        "inputPerM": 0.074,
-        "outputPerM": 0.295
-      }
-    },
-    {
       "id": "openrouter:tencent/hy-mt2-7b",
       "modelSlug": "tencent/hy-mt2-7b",
       "provider": "openrouter",
@@ -121,14 +72,14 @@
       }
     },
     {
-      "id": "openrouter:tencent/hy-mt2-1.8b",
-      "modelSlug": "tencent/hy-mt2-1.8b",
+      "id": "openrouter:tencent/hy-mt2-30b-a3b",
+      "modelSlug": "tencent/hy-mt2-30b-a3b",
       "provider": "openrouter",
       "mode": "stream",
       "bucket": "mt_specialist",
       "pricing": {
-        "inputPerM": 0.044,
-        "outputPerM": 0.17700000000000002
+        "inputPerM": 0.074,
+        "outputPerM": 0.295
       }
     }
   ]

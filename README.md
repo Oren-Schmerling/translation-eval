@@ -67,6 +67,114 @@ python3 scripts/fetch_dataset.py --dataset-version=v1
 
 ---
 
+## Phase 2: Eval Engine, Pragmatic Router & Local MetricX-24 Harness
+
+Phase 2 revamps the evaluation pipeline with a pragmatic model router, language/model guards, an optional 1-hop contrastive repair arm, track-separated reporting, and an isolated local neural scoring harness targeting **`google/metricx-24-hybrid-large-v2p6-bfloat16`** (~1.2B mT5-Large in `bfloat16`, native Ampere `sm_86` on RTX 3060 Ti).
+
+### Architecture & Pipeline Flow
+
+```mermaid
+flowchart TD
+    Req["Evaluation Request (v2 Dataset)"] --> Comp["Stage 1: In-Memory Pragmatic Compiler (0ms)"]
+    Comp --> Router["Stage 2: Pragmatic Router & Hard Language Guards"]
+    Router --> Primary["Primary Model Execution (OpenRouter)"]
+    Primary --> L1Gate{"Stage 3: Synchronous Layer-1 Gate (<1ms)\n(Script Purity, Required Anchors, Forbidden Markers)"}
+    L1Gate -- Passed --> Scorer["Stage 4A: Decoupled MetricX-24 Scorer\n(Local GPU / Mock CPU)"]
+    L1Gate -- Failed & --enable-repair --> Repair["Stage 4B: 1-Hop Contrastive Repair\n(Instruction Follower with Validator Errors)"]
+    Repair --> Scorer
+    Scorer --> Report["Track-Separated Report Aggregator\n(casual_conversational / diagnostic_morphology)"]
+```
+
+### Pragmatic Routing Matrix
+
+| Language | Cue State / Parameters | Primary Route & Fallback Chain | Blocked Hallucination Models |
+|---|---|---|---|
+| **Hebrew (`he`)** | Cued (speaker/listener gender, intimate/honorific) | `deepseek-v4.1-flash` → `claude-haiku-5.5` → `hy-mt2-7b` | `tencent/hy-mt2-1.8b` |
+| **Hebrew (`he`)** | Default / Lexical | `deepseek-v4.1-flash` → `hy-mt2-7b` → `claude-haiku-5.5` | `tencent/hy-mt2-1.8b` |
+| **Gujarati (`gu`)** | Cued (listener gender, intimate L1, honorific L3, social rel) | `deepseek-v4.1-flash` → `claude-haiku-5.5` → `hy-mt2-7b` → `hy-mt2-30b-a3b` | `z-ai/glm-5.3-flash`, `hy-mt2-1.8b` |
+| **Gujarati (`gu`)** | Default Polite L2 / Lexical | `hy-mt2-7b` → `deepseek-v4.1-flash` → `claude-haiku-5.5` → `hy-mt2-30b-a3b` | `z-ai/glm-5.3-flash`, `hy-mt2-1.8b` |
+| **Vietnamese (`vi`)** | Interactive / Northern (`vi_north`) / Kinship | `deepseek-v4.1-flash` → `claude-haiku-5.5` → `glm-5.3-flash` → `qwen3.8-flash` | `tencent/hy-mt2-*` (all) |
+| **Vietnamese (`vi`)** | Southern Dialect (`vi_south`) / Batch | `glm-5.3-flash` → `deepseek-v4.1-flash` → `claude-haiku-5.5` → `qwen3.8-flash` | `tencent/hy-mt2-*` (all) |
+| **Any Language** | `preferFast === true` | `claude-haiku-5.5` → `deepseek-v4.1-flash` | *(Language-specific blocks apply)* |
+
+> [!NOTE]
+> **Adapter Normalizations & Cache Optimization**:
+> - `tencent/hy-mt2-*`: Automatically folds `systemPrompt` into the `user` turn message and omits `role: "system"`.
+> - Sticky KV Cache: Deterministic `session_id` (`mt-{lang}-{tier}-{dialect}-{rel}`) preserves cached 5-shot prefixes.
+> - Real-Time Latency Sorting: Stream requests attach `provider: { sort: "latency", preferred_max_latency: { p90: 1.5 } }`.
+
+---
+
+## Running MetricX-24 on the GPU Host (RTX 3060 Ti)
+
+The MetricX-24 neural scoring harness is strictly decoupled from the TypeScript/Rust runner under `scoring/metricx/` with its own isolated virtual environment (`.venv-metricx/`).
+
+### Step 1: Clone & Bootstrap Host Environment (Turnkey Verification)
+
+Run this once after cloning onto the RTX 3060 Ti Linux machine to set up the environment, compile dependencies, apply the vendor padding patch, and verify CUDA `bfloat16` execution:
+
+```bash
+# 1. Clone repository
+git clone https://github.com/OrenSchmerling/translation-eval.git
+cd translation-eval
+
+# 2. Run idempotent verification script
+bash scoring/metricx/verify_gpu_host.sh
+```
+
+This verification script:
+1. Bootstraps Python 3.10 virtual environment (`.venv-metricx`) and installs CUDA 12 PyTorch wheels.
+2. Clones upstream `google-research/metricx` and applies the `batch_size > 1` `DataCollatorWithPadding` patch.
+3. Asserts CUDA + `bfloat16` capability (`check_gpu.py --require-cuda`).
+4. Scores the 6-row multi-lingual sanity fixture and asserts `score(accurate) < score(garbled)` with peak VRAM $\le 5.5\text{ GB}$.
+
+### Step 2: Production Neural Scoring Command
+
+Once verified, score any sweep output JSONL on the GPU host:
+
+```bash
+# Run production MetricX-24 (Hybrid Reference + QE) in bfloat16
+.venv-metricx/bin/python scoring/metricx/score_metricx.py \
+  --input results/sweep_smoke.jsonl \
+  --output results/sweep_smoke_scored.jsonl \
+  --device cuda \
+  --mode both \
+  --batch-size 8 \
+  --max-input-length 512
+
+# Generate track-separated Markdown leaderboard and CSV summary
+bun run src/reporting/report-generator.ts \
+  --input results/sweep_smoke_scored.jsonl \
+  --output results/sweep_smoke_report.md \
+  --csv results/sweep_smoke_summary.csv
+```
+
+---
+
+## Sample Track-Separated Report Output (Phase 2)
+
+MetricX-24 is an error regression metric where **0.0 is best and 25.0 is worst (lower is better $\downarrow$)**. Results are strictly separated by dataset track:
+
+### Track 1: Casual Conversational (Headline Benchmark)
+
+*Evaluated on 30 records. Sorted strictly by `MetricX-24 Ref (0–25 ↓)` ascending.*
+
+| Model / Provider | MetricX-24 Ref (0–25 ↓) | MetricX-24 QE (0–25 ↓) | ACR % | Post-Repair ACR % | chrF (Floor) | Catastrophe Flag % | p50 TTFT (ms) | p50 Total (ms) | Cost / 1k (Uncached / Cached) |
+|---|---|---|---|---|---|---|---|---|---|
+| `deepseek/deepseek-v4.1-flash` | **4.98** | 5.38 | 93.3% | 93.3% | 78.4 | 0.0% | 497 | 850 | $0.035 / $0.033 |
+| `anthropic/claude-haiku-5.5` | **6.65** | 7.02 | 93.3% | 93.3% | 76.1 | 0.0% | 689 | 816 | $0.054 / $0.050 |
+
+### Track 2: Diagnostic Morphology
+
+*Evaluated on 30 records. Sorted strictly by `MetricX-24 Ref (0–25 ↓)` ascending.*
+
+| Model / Provider | MetricX-24 Ref (0–25 ↓) | MetricX-24 QE (0–25 ↓) | ACR % | Post-Repair ACR % | chrF (Floor) | Catastrophe Flag % | p50 TTFT (ms) | p50 Total (ms) | Cost / 1k (Uncached / Cached) |
+|---|---|---|---|---|---|---|---|---|---|
+| `anthropic/claude-haiku-5.5` | **14.58** | 14.72 | 100.0% | 100.0% | 65.2 | 0.0% | 517 | 713 | $0.016 / $0.015 |
+| `deepseek/deepseek-v4.1-flash` | **14.78** | 14.92 | 100.0% | 100.0% | 64.8 | 0.0% | 253 | 532 | $0.009 / $0.008 |
+
+---
+
 ## Research questions
 
 | ID | Question | Primary tiers |

@@ -2,8 +2,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
 import { probeAndResolveRoster } from './discovery/model-prober';
+import { runOrchestratedTranslation } from './orchestration/repair-orchestrator';
 import { OpenRouterRunner } from './providers/openrouter';
-import { OpenRouterFreeQueue } from './providers/openrouter-free-queue';
+import { makeCheckpointKey, OpenRouterFreeQueue } from './providers/openrouter-free-queue';
+import { loadAndDeduplicateJSONL, writeReportFiles } from './reporting/report-generator';
+import { isModelBlockedForLanguage } from './routing/model-router';
 import { buildRequestsForSuite, loadDataset } from './suite';
 import { ProbedModel, ProbedRoster, RunRecord, SuiteType, TelemetryEnvelope } from './types';
 
@@ -40,6 +43,9 @@ function parseArgs() {
   let probeOnly = false;
   let preferBatch = false;
   let withJudges = false;
+  let enableRepair = false;
+  let includeCeiling = false;
+  let mockScorer = false;
   let judgesConfig: string | undefined;
   let judgeModels: string[] | undefined;
   let modelFilter: string[] | undefined;
@@ -53,6 +59,9 @@ function parseArgs() {
     if (arg === '--probe-only') probeOnly = true;
     else if (arg === '--prefer-batch') preferBatch = true;
     else if (arg === '--with-judges' || arg === '--judges') withJudges = true;
+    else if (arg === '--enable-repair') enableRepair = true;
+    else if (arg === '--include-ceiling') includeCeiling = true;
+    else if (arg === '--mock-scorer' || arg === '--score-metricx') mockScorer = true;
     else if (arg.startsWith('--dataset-version=')) datasetVersion = arg.slice('--dataset-version='.length) as 'v1' | 'v2';
     else if (arg.startsWith('--track=')) track = arg.slice('--track='.length);
     else if (arg.startsWith('--judges=')) {
@@ -74,6 +83,9 @@ function parseArgs() {
     probeOnly,
     preferBatch,
     withJudges,
+    enableRepair,
+    includeCeiling,
+    mockScorer,
     judgesConfig,
     judgeModels,
     modelFilter,
@@ -131,7 +143,7 @@ function createRunRecord(
     coarse: req.coarse,
     granular: req.granular,
     conflict_override: req.conflict_override,
-    track: 'culture_and_daily_life',
+    track: req.track || 'casual_conversational',
     bucket: 'A',
     is_cued_source: false,
     gold_reference: req.gold_reference,
@@ -158,6 +170,9 @@ async function main() {
     probeOnly,
     preferBatch,
     withJudges,
+    enableRepair,
+    includeCeiling,
+    mockScorer,
     judgesConfig,
     judgeModels,
     modelFilter,
@@ -167,17 +182,17 @@ async function main() {
     datasetVersion,
     track,
   } = parseArgs();
-  console.log(`Running translation-eval [suite=${suite}, preferBatch=${preferBatch}, concurrency=${concurrency}]...`);
+  console.log(`Running translation-eval [suite=${suite}, preferBatch=${preferBatch}, repair=${enableRepair}, concurrency=${concurrency}]...`);
 
   const orKey = process.env.OPENROUTER_API_KEY || '';
 
   const roster = await probeAndResolveRoster({
     openrouterApiKey: orKey,
     ceilingModelOverride: ceilingModel,
+    includeCeiling,
     preferBatch,
   });
 
-  // Write probed-roster.json
   const rosterPath = path.join(process.cwd(), 'probed-roster.json');
   fs.writeFileSync(rosterPath, JSON.stringify(roster, null, 2), 'utf8');
   console.log(`Wrote probed roster to ${rosterPath}`);
@@ -195,6 +210,16 @@ async function main() {
   const orRunner = new OpenRouterRunner({ apiKey: orKey });
 
   let totalItemsCompleted = 0;
+  const writtenSweepKeys = new Set<string>();
+
+  const appendSweepRecord = (rec: RunRecord): boolean => {
+    const key = makeCheckpointKey(rec.provider_id, rec.tier, rec.item_id, rec.variant_id);
+    if (writtenSweepKeys.has(key)) return false;
+    writtenSweepKeys.add(key);
+    fs.appendFileSync(sweepOutputFile, JSON.stringify(rec) + '\n', 'utf8');
+    totalItemsCompleted++;
+    return true;
+  };
 
   let activeModels = roster.active_roster;
   if (modelFilter && modelFilter.length > 0) {
@@ -209,21 +234,21 @@ async function main() {
 
   for (const model of activeModels) {
     console.log(`\n>>> Executing model: ${model.id} [mode=${model.mode}]`);
-    const requests = buildRequestsForSuite(dataset, model.id, suite);
+    const allRequests = buildRequestsForSuite(dataset, model.id, suite);
+    const requests = allRequests.filter((r) => !isModelBlockedForLanguage(r.lang, model.modelSlug));
     const existingCheckpoints = freeQueue.loadExistingCheckpoints(model.provider, model.modelSlug);
 
     for (const r of requests) {
-      const key = `${model.id}::${r.tier}::${r.variant_id}`;
+      const key = makeCheckpointKey(model.id, r.tier, r.item_id, r.variant_id);
       const rec = existingCheckpoints.get(key);
       if (rec) {
-        fs.appendFileSync(sweepOutputFile, JSON.stringify(rec) + '\n', 'utf8');
-        totalItemsCompleted++;
+        appendSweepRecord(rec);
       }
     }
 
     const pendingRequests = requests.filter((r) => {
-      const key = `${model.id}::${r.tier}::${r.variant_id}`;
-      return !existingCheckpoints.has(key);
+      const key = makeCheckpointKey(model.id, r.tier, r.item_id, r.variant_id);
+      return !existingCheckpoints.has(key) && !writtenSweepKeys.has(key);
     });
 
     if (pendingRequests.length === 0) {
@@ -241,8 +266,7 @@ async function main() {
           if (env) {
             const rec = createRunRecord(model, req, env);
             freeQueue.appendCheckpoint(model.provider, model.modelSlug, rec);
-            fs.appendFileSync(sweepOutputFile, JSON.stringify(rec) + '\n', 'utf8');
-            totalItemsCompleted++;
+            appendSweepRecord(rec);
           }
         }
       } catch (err: any) {
@@ -250,11 +274,25 @@ async function main() {
         const fallbackSlug = model.modelSlug.replace(/:batch$/, '');
         await runConcurrent(pendingRequests, concurrency, async (req) => {
           try {
-            const env = await orRunner.translate(fallbackSlug, req, model.pricing);
-            const rec = createRunRecord(model, req, env);
-            freeQueue.appendCheckpoint(model.provider, model.modelSlug, rec);
-            fs.appendFileSync(sweepOutputFile, JSON.stringify(rec) + '\n', 'utf8');
-            totalItemsCompleted++;
+            if (enableRepair) {
+              const orch = await runOrchestratedTranslation(orRunner, fallbackSlug, req, model.pricing, { enableRepair: true });
+              const rec = createRunRecord(model, req, orch.envelope);
+              rec.translation = orch.final_translation;
+              (rec as any).repair_triggered = orch.repair_triggered;
+              (rec as any).repair_succeeded = orch.repair_succeeded;
+              (rec as any).first_pass_acr = orch.first_pass_acr;
+              (rec as any).post_repair_acr = orch.post_repair_acr;
+              (rec as any).layer1_passed = orch.layer1_passed;
+              rec.total_latency_ms = orch.total_latency_ms;
+              rec.uncached_cost_usd = orch.total_cost_usd;
+              freeQueue.appendCheckpoint(model.provider, model.modelSlug, rec);
+              appendSweepRecord(rec);
+            } else {
+              const env = await orRunner.translate(fallbackSlug, req, model.pricing);
+              const rec = createRunRecord(model, req, env);
+              freeQueue.appendCheckpoint(model.provider, model.modelSlug, rec);
+              appendSweepRecord(rec);
+            }
             process.stdout.write('.');
           } catch (itemErr: any) {
             console.error(`\n  Error on ${req.request_id}: ${itemErr.message}`);
@@ -263,14 +301,27 @@ async function main() {
         console.log(' done.');
       }
     } else {
-      // Item by item execution (Stream)
       await runConcurrent(pendingRequests, concurrency, async (req) => {
         try {
-          const env = await orRunner.translate(model.modelSlug, req, model.pricing);
-          const rec = createRunRecord(model, req, env);
-          freeQueue.appendCheckpoint(model.provider, model.modelSlug, rec);
-          fs.appendFileSync(sweepOutputFile, JSON.stringify(rec) + '\n', 'utf8');
-          totalItemsCompleted++;
+          if (enableRepair) {
+            const orch = await runOrchestratedTranslation(orRunner, model.modelSlug, req, model.pricing, { enableRepair: true });
+            const rec = createRunRecord(model, req, orch.envelope);
+            rec.translation = orch.final_translation;
+            (rec as any).repair_triggered = orch.repair_triggered;
+            (rec as any).repair_succeeded = orch.repair_succeeded;
+            (rec as any).first_pass_acr = orch.first_pass_acr;
+            (rec as any).post_repair_acr = orch.post_repair_acr;
+            (rec as any).layer1_passed = orch.layer1_passed;
+            rec.total_latency_ms = orch.total_latency_ms;
+            rec.uncached_cost_usd = orch.total_cost_usd;
+            freeQueue.appendCheckpoint(model.provider, model.modelSlug, rec);
+            appendSweepRecord(rec);
+          } else {
+            const env = await orRunner.translate(model.modelSlug, req, model.pricing);
+            const rec = createRunRecord(model, req, env);
+            freeQueue.appendCheckpoint(model.provider, model.modelSlug, rec);
+            appendSweepRecord(rec);
+          }
           process.stdout.write('.');
         } catch (itemErr: any) {
           console.error(`\n  Error on ${req.request_id}: ${itemErr.message}`);
@@ -282,7 +333,26 @@ async function main() {
 
   console.log(`\nCompleted sweep! Wrote ${totalItemsCompleted} records to ${sweepOutputFile}`);
 
-  // Trigger grading & report via Rust
+  // Run MetricX scoring if requested
+  let fileToGrade = sweepOutputFile;
+  if (mockScorer) {
+    const scoredFile = path.join(resultsDir, `sweep_${suite}_scored.jsonl`);
+    console.log(`\nScoring with MetricX-24 mock scorer: ${scoredFile}...`);
+    const pyBin = fs.existsSync(path.join(process.cwd(), '.venv-metricx', 'bin', 'python'))
+      ? path.join(process.cwd(), '.venv-metricx', 'bin', 'python')
+      : 'python3';
+    const scoreProc = spawnSync(pyBin, [
+      path.join(process.cwd(), 'scoring', 'metricx', 'score_metricx.py'),
+      '--input', sweepOutputFile,
+      '--output', scoredFile,
+      '--mode', 'both',
+      '--mock-scorer',
+    ], { stdio: 'inherit' });
+    if (scoreProc.status === 0) {
+      fileToGrade = scoredFile;
+    }
+  }
+
   const gradedFile = path.join(resultsDir, `sweep_${suite}_graded.jsonl`);
   const reportFile = path.join(resultsDir, `sweep_${suite}_report.md`);
   const summaryFile = path.join(resultsDir, `sweep_${suite}_summary.csv`);
@@ -290,7 +360,7 @@ async function main() {
   console.log('\nRunning grader and report generator...');
   const gradeArgs = [
     'run', '--', 'grade',
-    '--input', sweepOutputFile,
+    '--input', fileToGrade,
     '--output', gradedFile,
     '--concurrency', String(concurrency),
   ];
@@ -329,16 +399,12 @@ async function main() {
 
   const gradeRes = spawnSync('cargo', gradeArgs, { stdio: 'inherit' });
 
-  if (gradeRes.status === 0) {
-    spawnSync('cargo', [
-      'run', '--', 'report',
-      '--input', gradedFile,
-      '--markdown', reportFile,
-      '--csv', summaryFile,
-    ], { stdio: 'inherit' });
-    console.log(`\nMarkdown report generated at: ${reportFile}`);
-    console.log(`CSV summary generated at: ${summaryFile}`);
-  }
+  // Generate track-separated Phase 2 markdown report and CSV summary
+  const targetRecordsFile = (gradeRes.status === 0 && fs.existsSync(gradedFile)) ? gradedFile : fileToGrade;
+  const records = loadAndDeduplicateJSONL(targetRecordsFile);
+  writeReportFiles(records, reportFile, summaryFile);
+  console.log(`\nPhase 2 Markdown report generated at: ${reportFile}`);
+  console.log(`CSV summary generated at: ${summaryFile}`);
 }
 
 if (import.meta.main || process.argv[1]?.endsWith('cli.ts')) {

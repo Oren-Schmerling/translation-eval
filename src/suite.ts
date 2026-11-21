@@ -26,16 +26,66 @@ export function loadDataset(
 ): Dataset {
   let opts: LoadDatasetOptions = {};
   if (typeof datasetPathOrOptions === 'string') {
-    opts = options || {};
-    opts.datasetPath = datasetPathOrOptions;
-  } else if (datasetPathOrOptions) {
+    opts = { ...(options || {}), datasetPath: datasetPathOrOptions };
+  } else if (datasetPathOrOptions && typeof datasetPathOrOptions === 'object') {
     opts = datasetPathOrOptions;
+  } else if (options && typeof options === 'object') {
+    opts = options;
   }
 
-  const p = opts.datasetPath || path.join(process.cwd(), 'data', 'compiled', 'eval_dataset.json');
+  const isV2 = opts.datasetVersion === 'v2';
+  const defaultPath = isV2
+    ? path.join(process.cwd(), 'data', 'compiled', 'dataset_v2.jsonl')
+    : path.join(process.cwd(), 'data', 'compiled', 'eval_dataset.json');
+
+  const p = opts.datasetPath || defaultPath;
   const raw = fs.readFileSync(p, 'utf8');
-  const parsed = JSON.parse(raw);
-  let variants: TargetVariant[] = parsed.variants || [];
+
+  let variants: TargetVariant[] = [];
+  if (p.endsWith('.jsonl')) {
+    const lines = raw.split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const item = JSON.parse(trimmed);
+        const profile = item.pragmatic_profile || {};
+        variants.push({
+          variant_id: `${item.item_id}_v1`,
+          item_id: item.item_id,
+          source_en: item.source_en,
+          lang: item.lang,
+          track: item.track || 'casual_conversational',
+          bucket: 'A',
+          is_cued_source: false,
+          coarse: {
+            formality: profile.register_tier || 'default',
+            speaker_gender: profile.speaker_gender || null,
+            listener_gender: profile.listener_gender || null,
+            dialect: profile.regional_dialect || null,
+          },
+          granular: {
+            pronoun_tier: null,
+            kinship_pair: null,
+            relationship: profile.social_relationship || null,
+          },
+          conflict_override: null,
+          gold_reference: item.reference_target || '',
+          anchors: {
+            must_contain_any: item.required_anchors || [],
+            must_not_contain: item.forbidden_markers || [],
+            synset_equivalents: {},
+            acceptable_synonyms: [],
+          },
+        });
+      } catch {
+        // ignore parse error
+      }
+    }
+  } else {
+    const parsed = JSON.parse(raw);
+    variants = parsed.variants || [];
+  }
 
   if (opts.track && opts.track !== 'all') {
     variants = variants.filter((v) => v.track === opts.track);
@@ -119,7 +169,7 @@ export function getContrastiveExamples(
 export function buildRequestsForSuite(
   dataset: Dataset,
   providerId: string,
-  suite: SuiteType
+  suite: SuiteType | string
 ): TranslationRequest[] {
   const primaryTiers: EvalTier[] = [
     'tier1_default_zero_shot',
@@ -127,21 +177,22 @@ export function buildRequestsForSuite(
     'tier3_a_few_shot_k5_pos',
   ];
 
-  const allTiers: EvalTier[] = [
-    'tier1_default_zero_shot',
-    'tier2_a_coarse_params',
-    'tier2_b_granular_params',
-    'tier2_c_adversarial_conflict',
-    'tier3_a_few_shot_k5_pos',
-    'tier3_b_few_shot_k20_pos',
-    'tier3_c_few_shot_k5_contrastive',
-  ];
-
   let selectedVariants: TargetVariant[] = [];
   let tiersToUse: EvalTier[] = primaryTiers;
 
-  if (suite === 'smoke') {
-    // 9 items/model: 1 variant per lang (gu, he, vi) across 3 primary tiers (3 * 3 = 9)
+  const isV2 = dataset.variants.some((v) => v.item_id?.startsWith('v2_'));
+
+  if (suite === 'smoke' && isV2) {
+    // 30 items total: 10 per lang (gu, he, vi) across casual_conversational (5) + diagnostic_morphology (5)
+    const langs: Language[] = ['gu', 'he', 'vi'];
+    for (const l of langs) {
+      const casual = dataset.variants.filter((v) => v.lang === l && v.track === 'casual_conversational').slice(0, 5);
+      const diag = dataset.variants.filter((v) => v.lang === l && v.track === 'diagnostic_morphology').slice(0, 5);
+      selectedVariants.push(...casual, ...diag);
+    }
+    tiersToUse = ['tier1_default_zero_shot'];
+  } else if (suite === 'smoke') {
+    // Legacy v1 smoke: 9 items across 3 primary tiers
     const langs: Language[] = ['gu', 'he', 'vi'];
     for (const l of langs) {
       const match = dataset.variants.find((v) => v.lang === l && v.item_id === 'cul_a_01')
@@ -149,30 +200,7 @@ export function buildRequestsForSuite(
       if (match) selectedVariants.push(match);
     }
     tiersToUse = primaryTiers;
-  } else if (suite === 'stratified') {
-    // 180 items/model across all tiers and gu/he/vi
-    // Balanced selection: 60 per language, spread across tiers
-    const byLang: Record<Language, TargetVariant[]> = { gu: [], he: [], vi: [] };
-    for (const v of dataset.variants) byLang[v.lang].push(v);
-
-    // Collect requests across all tiers up to 180 total
-    const requests: TranslationRequest[] = [];
-    const targetPerLang = 60;
-    for (const l of ['gu', 'he', 'vi'] as Language[]) {
-      const list = byLang[l];
-      let langCount = 0;
-      for (const tier of allTiers) {
-        for (const variant of list) {
-          if (langCount >= targetPerLang) break;
-          requests.push(makeRequest(dataset, providerId, tier, variant));
-          langCount++;
-        }
-        if (langCount >= targetPerLang) break;
-      }
-    }
-    return requests;
   } else {
-    // full: 720 variants across 3 primary tiers = 2,160 items/model
     selectedVariants = dataset.variants;
     tiersToUse = primaryTiers;
   }
@@ -214,5 +242,6 @@ function makeRequest(
     examples,
     gold_reference: variant.gold_reference,
     anchors: variant.anchors,
+    track: variant.track,
   };
 }

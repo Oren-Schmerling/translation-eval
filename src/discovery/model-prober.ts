@@ -3,6 +3,8 @@ import { ProbedModel, ProbedRoster } from '../types';
 export interface ProberOptions {
   openrouterApiKey?: string;
   ceilingModelOverride?: string;
+  includeCeiling?: boolean;
+  includeFree?: boolean;
   preferBatch?: boolean;
   skipMicroProbe?: boolean;
 }
@@ -62,44 +64,40 @@ export async function probeAndResolveRoster(opts: ProberOptions): Promise<Probed
     }
   }
 
-  let expensiveCeilingAdded = false;
+  // Ceiling model selection (Bucket 2 - only if requested or explicit override)
+  if (opts.includeCeiling || opts.ceilingModelOverride) {
+    const baseCeiling = opts.ceilingModelOverride || 'anthropic/claude-sonnet-5.5';
+    const { modelSlug: ceilingSlug, isBatch: isCeilingBatch } = resolveBatchSlug(baseCeiling, orModels, preferBatch);
 
-  // Ceiling model selection (Bucket 2)
-  const baseCeiling = opts.ceilingModelOverride || 'anthropic/claude-sonnet-5.5';
-  const { modelSlug: ceilingSlug, isBatch: isCeilingBatch } = resolveBatchSlug(baseCeiling, orModels, preferBatch);
-
-  const ceilingModelMeta = orModels.find((m) => m.id === ceilingSlug) || orModels.find((m) => m.id === baseCeiling);
-  if (ceilingModelMeta) {
-    const inCost = (parseFloat(ceilingModelMeta.pricing?.prompt || '0') * 1_000_000) || 1.0;
-    const outCost = (parseFloat(ceilingModelMeta.pricing?.completion || '0') * 1_000_000) || 5.0;
-    roster.openrouter.ceiling_model = ceilingSlug;
-    roster.active_roster.push({
-      id: `openrouter:${ceilingSlug}`,
-      modelSlug: ceilingSlug,
-      provider: 'openrouter',
-      mode: isCeilingBatch ? 'batch' : 'stream',
-      bucket: 'ceiling',
-      pricing: { inputPerM: inCost, outputPerM: outCost, cachedReadPerM: 0.10 },
-      isExpensive: true,
-    });
-    expensiveCeilingAdded = true;
+    const ceilingModelMeta = orModels.find((m) => m.id === ceilingSlug) || orModels.find((m) => m.id === baseCeiling);
+    if (ceilingModelMeta) {
+      const inCost = (parseFloat(ceilingModelMeta.pricing?.prompt || '0') * 1_000_000) || 1.0;
+      const outCost = (parseFloat(ceilingModelMeta.pricing?.completion || '0') * 1_000_000) || 5.0;
+      roster.openrouter.ceiling_model = ceilingSlug;
+      roster.active_roster.push({
+        id: `openrouter:${ceilingSlug}`,
+        modelSlug: ceilingSlug,
+        provider: 'openrouter',
+        mode: isCeilingBatch ? 'batch' : 'stream',
+        bucket: 'ceiling',
+        pricing: { inputPerM: inCost, outputPerM: outCost, cachedReadPerM: 0.10 },
+        isExpensive: true,
+      });
+    }
   }
 
-  // Bucket 3: High-Promise Low-Cost Contenders
+  // Bucket 3: High-Promise Low-Cost Contenders (Purged Roster: deepseek, haiku, glm-5.3, qwen3.8-flash)
   const contenderSlugs = [
-    'anthropic/claude-haiku-5.5',
     'deepseek/deepseek-v4.1-flash',
-    'deepseek/deepseek-v4.1-flash-1017',
-    'qwen/qwen3.8-flash',
-    'qwen/qwen3.8-27b',
+    'anthropic/claude-haiku-5.5',
     'z-ai/glm-5.3-flash',
-    'minimax/minimax-m3.1-flash',
+    'qwen/qwen3.8-flash',
   ];
 
   for (const baseSlug of contenderSlugs) {
     const { modelSlug, isBatch } = resolveBatchSlug(baseSlug, orModels, preferBatch);
     const m = orModels.find((item) => item.id === modelSlug) || orModels.find((item) => item.id === baseSlug);
-    if (m && !roster.active_roster.some((ar) => ar.modelSlug.replace(/:batch$/, '').replace(/-1017$/, '') === baseSlug.replace(/:batch$/, '').replace(/-1017$/, ''))) {
+    if (m && !roster.active_roster.some((ar) => ar.modelSlug.replace(/:batch$/, '') === baseSlug.replace(/:batch$/, ''))) {
       const inCost = (parseFloat(m.pricing?.prompt || '0') * 1_000_000) || 0;
       const outCost = (parseFloat(m.pricing?.completion || '0') * 1_000_000) || 0;
       if (isExpensiveModel(inCost, outCost)) continue;
@@ -116,12 +114,11 @@ export async function probeAndResolveRoster(opts: ProberOptions): Promise<Probed
     }
   }
 
-  // Bucket 3B: Dedicated Machine Translation Specialists (tencent/hy-mt2-*)
+  // Bucket 3B: Dedicated Machine Translation Specialists (Purged: 7b and 30b-a3b only, 1.8b purged)
   roster.openrouter.mt_specialists = [];
   const mtSpecialistSlugs = [
-    'tencent/hy-mt2-30b-a3b',
     'tencent/hy-mt2-7b',
-    'tencent/hy-mt2-1.8b',
+    'tencent/hy-mt2-30b-a3b',
   ];
 
   for (const baseSlug of mtSpecialistSlugs) {

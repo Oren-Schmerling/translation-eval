@@ -1,4 +1,9 @@
 import { buildPromptText, buildSystemPrompt, cleanTranslationResponse } from '../prompt';
+import {
+  assertModelAllowedForLanguage,
+  buildDeterministicSessionId,
+  normalizeMessagesForModel,
+} from '../routing/model-router';
 import { ModelPricing, TelemetryEnvelope, TranslationRequest } from '../types';
 
 export interface OpenRouterRunnerOptions {
@@ -15,35 +20,39 @@ export class OpenRouterRunner {
   async translate(
     model: string,
     req: TranslationRequest,
-    pricing: ModelPricing
+    pricing: ModelPricing,
+    isStreamMode = true
   ): Promise<TelemetryEnvelope> {
+    assertModelAllowedForLanguage(req.lang, model);
+
     const startTime = performance.now();
     let ttftMs: number | null = null;
 
     const systemPrompt = buildSystemPrompt(req.tier);
     const userPrompt = buildPromptText(req);
-
     const isFewShotTier = req.tier.startsWith('tier3');
 
-    // Messages structure with ephemeral cache_control for Tier 3 few-shot prompts
-    const messages = [
-      {
-        role: 'system',
-        content: systemPrompt,
-        ...(isFewShotTier ? { cache_control: { type: 'ephemeral' } } : {}),
-      },
-      {
-        role: 'user',
-        content: userPrompt,
-      },
-    ];
+    const messages = normalizeMessagesForModel(model, systemPrompt, userPrompt, isFewShotTier);
+    const sessionId = buildDeterministicSessionId({
+      lang: req.lang,
+      register_tier: req.coarse?.formality,
+      regional_dialect: req.coarse?.dialect,
+      social_relationship: req.granular?.relationship,
+    });
+
+    const providerConfig: any = { allow_fallbacks: true };
+    if (isStreamMode) {
+      providerConfig.sort = 'latency';
+      providerConfig.preferred_max_latency = { p90: 1.5 };
+    }
 
     const makeBody = (withReasoning: boolean) => ({
       model,
       messages,
       max_tokens: 1024,
       stream: true,
-      provider: { allow_fallbacks: true },
+      session_id: sessionId,
+      provider: providerConfig,
       ...(withReasoning ? { reasoning: { effort: 'none' } } : {}),
     });
 
@@ -57,7 +66,6 @@ export class OpenRouterRunner {
     });
 
     if (!resp.ok && resp.status === 400) {
-      // Retry omitting reasoning if rejected by provider/model
       resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -153,24 +161,27 @@ export class OpenRouterRunner {
     const results = new Map<string, TelemetryEnvelope>();
 
     const batchRequests = requests.map((req) => {
+      assertModelAllowedForLanguage(req.lang, batchModelSlug);
       const systemPrompt = buildSystemPrompt(req.tier);
       const userPrompt = buildPromptText(req);
       const isFewShotTier = req.tier.startsWith('tier3');
+      const messages = normalizeMessagesForModel(batchModelSlug, systemPrompt, userPrompt, isFewShotTier);
+      const sessionId = buildDeterministicSessionId({
+        lang: req.lang,
+        register_tier: req.coarse?.formality,
+        regional_dialect: req.coarse?.dialect,
+        social_relationship: req.granular?.relationship,
+      });
 
       return {
         custom_id: req.request_id,
         method: 'POST',
         url: '/v1/chat/completions',
         body: {
-          messages: [
-            {
-              role: 'system',
-              content: systemPrompt,
-              ...(isFewShotTier ? { cache_control: { type: 'ephemeral' } } : {}),
-            },
-            { role: 'user', content: userPrompt },
-          ],
+          messages,
           max_tokens: 1024,
+          session_id: sessionId,
+          reasoning: { effort: 'none' },
         },
       };
     });
@@ -195,8 +206,7 @@ export class OpenRouterRunner {
     const batchData: any = await submitRes.json();
     const batchId = batchData.id;
 
-    // Poll until completed (or fallback if pending too long)
-    const maxWaitMs = 600_000; // 10 minutes timeout before interactive fallback
+    const maxWaitMs = 600_000;
     const pollStart = Date.now();
     let status = batchData.status;
 
@@ -205,7 +215,6 @@ export class OpenRouterRunner {
         throw new Error(`OpenRouter Batch ${batchId} failed with status ${status}`);
       }
       if (Date.now() - pollStart > maxWaitMs) {
-        // Fallback: execute standard endpoint concurrently if batch takes longer than interactive limit
         const baseSlug = batchModelSlug.replace(/:batch$/, '');
         let currentIndex = 0;
         const poolSize = Math.min(10, requests.length);
@@ -213,7 +222,7 @@ export class OpenRouterRunner {
           while (currentIndex < requests.length) {
             const req = requests[currentIndex++];
             try {
-              const env = await this.translate(baseSlug, req, pricing);
+              const env = await this.translate(baseSlug, req, pricing, false);
               results.set(req.request_id, env);
             } catch (err: any) {
               console.error(`Batch fallback error on ${req.request_id}:`, err?.message);
@@ -235,6 +244,8 @@ export class OpenRouterRunner {
           const totalLatency = performance.now() - startTime;
           polled.results.forEach((item: any) => {
             const reqId = item.custom_id;
+            // Strict deduplication by custom_id
+            if (results.has(reqId)) return;
             const text = cleanTranslationResponse(
               item?.response?.body?.choices?.[0]?.message?.content || ''
             );
