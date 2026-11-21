@@ -11,15 +11,56 @@ works offline with no API keys.
 
 ---
 
-## Dataset
+## Dataset (v2 Benchmark)
 
-- **Published Dataset**: [https://huggingface.co/datasets/OrenSchmerling/pragmatic-mt-eval](https://huggingface.co/datasets/OrenSchmerling/pragmatic-mt-eval)
-- **Variants**: 720 total (192 Hebrew, 288 Gujarati, 240 Vietnamese across 36 base items).
+- **Published Benchmark**: [https://huggingface.co/datasets/OrenSchmerling/pragmatic-mt-eval](https://huggingface.co/datasets/OrenSchmerling/pragmatic-mt-eval)
+- **Total Benchmark Rows**: 750 (600 casual conversational + 150 diagnostic morphology calibration items).
+- **Languages**: Hebrew (`he`), Gujarati (`gu`), Vietnamese (`vi`).
+- **Legacy v1 Access**: Preserved under Git tag `v1.0` and accessible via `--dataset-version=v1`.
 
-Fetch the published dataset:
+### Fetch the published benchmark:
 ```bash
+# Fetch full v2 benchmark (default, verifies SHA-256 against manifest)
 python3 scripts/fetch_dataset.py
+
+# Fetch specific track
+python3 scripts/fetch_dataset.py --track=casual_conversational
+
+# Fetch legacy v1 dataset (720 variants)
+python3 scripts/fetch_dataset.py --dataset-version=v1
 ```
+
+### Dataset Statistics (Auto-Generated from Manifest)
+
+*Generated directly from `provenance/v2/manifest.json`.*
+
+#### Track Breakdown:
+| Track | Hebrew (`he`) | Gujarati (`gu`) | Vietnamese (`vi`) | Total Rows |
+|---|---:|---:|---:|---:|
+| `casual_conversational` | 200 | 200 | 200 | **600** |
+| `diagnostic_morphology` | 50 | 50 | 50 | **150** |
+| **Total** | **250** | **250** | **250** | **750** |
+
+#### Casual Track Sourcing & Anti-Translationese Blend:
+| Language | Target-First Native Utterances | Parallel Casual Turns | Target-First Share |
+|---|---:|---:|---:|
+| Hebrew (`he`) | 72 | 128 | 36.0% (>= 30% quota met) |
+| Gujarati (`gu`) | 0 | 200 | 0.0% |
+| Vietnamese (`vi`) | 103 | 97 | 51.5% (>= 30% quota met) |
+
+#### Gujarati Register Balance (`casual_conversational`):
+| Register Tier | Pronoun Class | Row Count | Percentage |
+|---|---|---:|---:|
+| `intimate` | L1 (`તું`, `તને`, `તારું`) | 62 | 31.0% (>= 25% quota met) |
+| `honorific` | L3 (`આપ`, `આપને`, `આપનું`) | 45 | 22.5% (>= 15% quota met) |
+| `polite` | L2 (`તમે`, `તમને`, `તમારું`) | 43 | 21.5% (<= 60% quota met) |
+| *(unmarked)* | No 2nd-person pronoun (IN22-Conv turns) | 50 | 25.0% |
+
+#### Vietnamese Dialect Balance (`casual_conversational`):
+| Regional Dialect | Row Count | Percentage |
+|---|---:|---:|
+| `vi_south` (Southern) | 64 | 58.7% (within 55%–65% target) |
+| `vi_north` (Northern) | 45 | 41.3% (within 35%–45% target) |
 
 ---
 
@@ -384,9 +425,53 @@ python3 scripts/sidecar.py export-validation-quiz \
 
 ---
 
-## Dataset provenance
+## Dataset provenance & v2 Curation Methodology
 
-For dataset construction templates, reconstruction instructions, and the 720-row breakdown, see [provenance/README.md](provenance/README.md).
+### 1. Design Thesis
+Standard machine translation benchmarks (`IWSLT`, `Tatoeba`, `WinoMT`) suffer from formal/translationese skew and fail to evaluate interpersonal pragmatic fidelity across `he`, `gu`, and `vi`. The v2 benchmark curates authentic colloquial dialogue, regional dialect variants, and spontaneous speech without synthetic target golds.
+
+### 2. Track Quarantine Architecture
+- **`casual_conversational`**: Primary benchmark track (600 items; 200 items each for `he`, `gu`, `vi`). Evaluates everyday spoken turns, intimate/polite/honorific registers, and regional dialects.
+- **`register_contrastive`**: Optional contrastive track probing formal vs. informal register shifts.
+- **`diagnostic_morphology`**: Quarantined textbook calibration baselines (150 items; 50/lang) from Tatoeba; never mixed into casual conversational benchmark scores.
+
+### 3. Anti-Translationese Methodology
+- **Zero Synthetic Target Golds**: AI models are NEVER used to generate or paraphrase target-language references.
+- **Target-First Sourcing**: Spontaneous speech transcripts (`ivrit-ai`) and native regional dialect corpora (`ViDia2Std`, `ViMD`) are ingested first. Casual English sources are back-translated via `deepseek/deepseek-v4.1-flash` at temperature 0.0 with deterministic JSONL caching. Every such item is tagged `origin_direction: "target_first"`.
+
+### 4. Backward Label Harvesting
+Labels are harvested deterministically backward from native target gold strings (never inferred from English):
+- **Hebrew (`he`)**: `listener_gender` extracted exclusively from unvocalized orthographic markers (`אתה` vs. `את`, unambiguous feminine imperatives/participles like `תעשי`, `תבואי`, `הולכת`, `מוכנה`).
+- **Gujarati (`gu`)**: `register_tier` harvested from closed-class pronouns: L1 intimate (`તું`, `તને`), L2 polite (`તમે`, `તમને`), L3 honorific (`આપ`, `આપને`).
+- **Vietnamese (`vi`)**: `social_relationship` harvested only when both pronouns of a kinship pair appear (`anh_em`, `chi_em`, `chu_chau`, `may_tao`, `con_bo`, `con_me`). `regional_dialect` harvested from source metadata and anchors (`vi_south`: `muỗng`, `vô`, `hổng`, `nè`, `nghen`, `má`, `tui`; `vi_north`: `thìa`, `vào`, `không`, `nhé`, `nhỉ`, `bố`, `tôi`).
+
+### 5. Upstream Corpora & Licenses
+| Corpus | Language | Split | License | Benchmark Role |
+|---|---|---|---|---|
+| `sentence-transformers/parallel-sentences-opensubtitles` | `he`, `vi` | `train` | Open / CC | Parallel casual dialogue |
+| `ivrit-ai/crowd-transcribe-v5` | `he` | `train` | Open Spoken (CC) | Spontaneous Israeli spoken Hebrew transcripts |
+| `ai4bharat/IN22-Conv` | `gu` | `test` | CC-BY-4.0 | Everyday interpersonal conversation turns |
+| `Helsinki-NLP/opus-100` | `gu`, `vi` | `train` | CC-BY-SA-4.0 | Natural parallel Gujarati & Vietnamese dialogue |
+| `Biu3010/ViDia2Std` | `vi` | `train`, `dev`, `test` | MIT / Academic | Native regional dialect target references |
+| `nguyendv02/ViMD_Dataset` | `vi` | `test` | Open Academic | Regional speech metadata & transcripts |
+| `Helsinki-NLP/tatoeba` | `he`, `gu`, `vi` | `train` | CC-BY-2.0 | Isolated textbook baseline unit tests |
+
+### 6. Reproducibility
+All curation and verification scripts live under `provenance/v2/`:
+```bash
+# Dry-run verification
+python provenance/v2/build_dataset.py --dry-run --limit-per-source 20
+
+# Full build
+python provenance/v2/build_dataset.py
+
+# Quality test assertions
+pytest provenance/v2/tests/
+
+# Publish to Hugging Face Hub (dry-run or live push)
+python provenance/v2/publish_hf.py --dry-run
+python provenance/v2/publish_hf.py --push
+```
 
 Published dataset: [https://huggingface.co/datasets/OrenSchmerling/pragmatic-mt-eval](https://huggingface.co/datasets/OrenSchmerling/pragmatic-mt-eval)
 

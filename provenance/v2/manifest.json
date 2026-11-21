@@ -1,0 +1,186 @@
+{
+  "dataset_version": "v2",
+  "dry_run": false,
+  "sources": {
+    "he_spontaneous": {
+      "attempted": [
+        {
+          "dataset": "ivrit-ai/crowd-transcribe-v5",
+          "note": "gated / priority 1"
+        }
+      ],
+      "active_source": "ivrit-ai/crowd-transcribe-v5",
+      "status": "loaded 175 utterances"
+    },
+    "he_opensubtitles": "sentence-transformers/parallel-sentences-opensubtitles en-he",
+    "gu_in22": {
+      "source": "ai4bharat/IN22-Conv",
+      "split": "test",
+      "status": "loaded 150 items"
+    },
+    "gu_baatcheet": {
+      "source": "HimangY/BaatCheet-Corpus",
+      "status": "skipped: no gu config"
+    },
+    "gu_snorbyte": {
+      "source": "snorbyte/indic-audio-natural-conversations-sample",
+      "status": "accessible"
+    },
+    "gu_opus100": {
+      "source": "Helsinki-NLP/opus-100",
+      "split": "train",
+      "status": "loaded 600 items (L1=66, L3=46, L2=488)"
+    },
+    "vi_vidia2std": {
+      "source": "Biu3010/ViDia2Std",
+      "method": "direct_csv_download",
+      "status": "loaded 200 items (South=120, North=80)"
+    },
+    "vi_vimd": {
+      "source": "nguyendv02/ViMD_Dataset",
+      "method": "parquet_metadata_only",
+      "status": "loaded 12 items (South=0, North=12)"
+    },
+    "vi_opensubtitles": "sentence-transformers/parallel-sentences-opensubtitles en-vi",
+    "facebook_cocoa_mt": {
+      "source": "facebook/CoCoA-MT",
+      "track": "register_contrastive",
+      "supported_pairs": [],
+      "missing_pairs": [
+        "he",
+        "gu",
+        "vi"
+      ],
+      "status": "skipped: not accessible on Hub (RepositoryNotFoundError)"
+    },
+    "stanovsky_wino_mt": {
+      "source": "stanovsky/wino_mt",
+      "track": "diagnostic_morphology",
+      "status": "skipped: not accessible on Hub (RepositoryNotFoundError)"
+    },
+    "tatoeba_he": {
+      "source": "Helsinki-NLP/tatoeba en-he",
+      "track": "diagnostic_morphology",
+      "status": "loaded 200 textbook items"
+    },
+    "tatoeba_gu": {
+      "source": "Helsinki-NLP/tatoeba en-gu",
+      "track": "diagnostic_morphology",
+      "status": "loaded 154 textbook items"
+    },
+    "tatoeba_vi": {
+      "source": "Helsinki-NLP/tatoeba en-vi",
+      "track": "diagnostic_morphology",
+      "status": "loaded 200 textbook items"
+    }
+  },
+  "stages": {
+    "he_casual": {
+      "candidates_seen": 402,
+      "accepted": 200,
+      "rejected": {
+        "duplicate_source_en": 19,
+        "subtitle_artifacts": 15,
+        "word_count_out_of_bounds": 137,
+        "unresolved_fragment_opener": 1,
+        "script_hygiene_failed": 2,
+        "target_subtitle_artifacts": 28
+      }
+    },
+    "gu_casual": {
+      "candidates_seen": 236,
+      "accepted": 200,
+      "rejected": {
+        "word_count_out_of_bounds": 20,
+        "script_hygiene_failed": 2,
+        "duplicate_source_en": 14
+      }
+    },
+    "vi_casual": {
+      "candidates_seen": 368,
+      "accepted": 200,
+      "rejected": {
+        "word_count_out_of_bounds": 115,
+        "subtitle_artifacts": 31,
+        "target_subtitle_artifacts": 20,
+        "empty_text": 1,
+        "unresolved_fragment_opener": 1
+      }
+    },
+    "tatoeba_he": {
+      "candidates_seen": 190,
+      "accepted": 50,
+      "rejected": {
+        "word_count_out_of_bounds": 100,
+        "duplicate_source_en": 39,
+        "subtitle_artifacts": 1
+      }
+    },
+    "tatoeba_gu": {
+      "candidates_seen": 146,
+      "accepted": 50,
+      "rejected": {
+        "word_count_out_of_bounds": 96
+      }
+    },
+    "tatoeba_vi": {
+      "candidates_seen": 121,
+      "accepted": 50,
+      "rejected": {
+        "duplicate_source_en": 18,
+        "word_count_out_of_bounds": 51,
+        "target_subtitle_artifacts": 1,
+        "subtitle_artifacts": 1
+      }
+    }
+  },
+  "distributions": {
+    "by_track": {
+      "casual_conversational": 600,
+      "diagnostic_morphology": 150
+    },
+    "by_lang": {
+      "he": 250,
+      "gu": 250,
+      "vi": 250
+    },
+    "by_origin_direction": {
+      "source_first": 575,
+      "target_first": 175
+    },
+    "casual_by_lang_origin": {
+      "source_first": {
+        "gu": 200,
+        "he": 128,
+        "vi": 97
+      },
+      "target_first": {
+        "gu": 0,
+        "he": 72,
+        "vi": 103
+      }
+    },
+    "gu_casual_registers": {
+      "intimate": 62,
+      "honorific": 45,
+      "polite": 43
+    },
+    "vi_casual_dialects": {
+      "vi_south": 64,
+      "vi_north": 45
+    }
+  },
+  "files": {
+    "dataset_v2.jsonl": {
+      "path": "/home/oren/Documents/Code/translation-eval/provenance/v2/output/dataset_v2.jsonl",
+      "sha256": "c6adf910a340181744f214cbce5395ec55c0bae94c6168788eb8c55c2638e074",
+      "count": 750
+    },
+    "dataset_v2.parquet": {
+      "path": "/home/oren/Documents/Code/translation-eval/provenance/v2/output/dataset_v2.parquet",
+      "sha256": "fcfaa52913f1e42887b2cb0fda688854311f5f21ae4aaa62f7e75512edd1aa65",
+      "count": 750
+    }
+  },
+  "total_items": 750
+}

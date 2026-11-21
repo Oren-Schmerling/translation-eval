@@ -14,10 +14,34 @@ export interface Dataset {
   variants: TargetVariant[];
 }
 
-export function loadDataset(datasetPath?: string): Dataset {
-  const p = datasetPath || path.join(process.cwd(), 'data', 'compiled', 'eval_dataset.json');
+export interface LoadDatasetOptions {
+  datasetVersion?: 'v1' | 'v2';
+  track?: 'casual_conversational' | 'register_contrastive' | 'diagnostic_morphology' | 'all' | string;
+  datasetPath?: string;
+}
+
+export function loadDataset(
+  datasetPathOrOptions?: string | LoadDatasetOptions,
+  options?: LoadDatasetOptions
+): Dataset {
+  let opts: LoadDatasetOptions = {};
+  if (typeof datasetPathOrOptions === 'string') {
+    opts = options || {};
+    opts.datasetPath = datasetPathOrOptions;
+  } else if (datasetPathOrOptions) {
+    opts = datasetPathOrOptions;
+  }
+
+  const p = opts.datasetPath || path.join(process.cwd(), 'data', 'compiled', 'eval_dataset.json');
   const raw = fs.readFileSync(p, 'utf8');
-  return JSON.parse(raw);
+  const parsed = JSON.parse(raw);
+  let variants: TargetVariant[] = parsed.variants || [];
+
+  if (opts.track && opts.track !== 'all') {
+    variants = variants.filter((v) => v.track === opts.track);
+  }
+
+  return { variants };
 }
 
 function coarseCellEq(a: CoarseDimensions, b: CoarseDimensions): boolean {

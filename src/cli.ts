@@ -46,11 +46,15 @@ function parseArgs() {
   let ceilingModel: string | undefined;
   let suite: SuiteType = 'smoke';
   let concurrency = 10;
+  let datasetVersion: 'v1' | 'v2' = 'v2';
+  let track = 'all';
 
   for (const arg of args) {
     if (arg === '--probe-only') probeOnly = true;
     else if (arg === '--prefer-batch') preferBatch = true;
     else if (arg === '--with-judges' || arg === '--judges') withJudges = true;
+    else if (arg.startsWith('--dataset-version=')) datasetVersion = arg.slice('--dataset-version='.length) as 'v1' | 'v2';
+    else if (arg.startsWith('--track=')) track = arg.slice('--track='.length);
     else if (arg.startsWith('--judges=')) {
       withJudges = true;
       judgeModels = arg.slice('--judges='.length).split(',').map((s) => resolveJudgeModelSlug(s.trim())).filter(Boolean);
@@ -66,7 +70,19 @@ function parseArgs() {
     else if (arg.startsWith('--ceiling-model=')) ceilingModel = arg.slice('--ceiling-model='.length);
     else if (arg.startsWith('--suite=')) suite = arg.slice('--suite='.length) as SuiteType;
   }
-  return { probeOnly, preferBatch, withJudges, judgesConfig, judgeModels, modelFilter, ceilingModel, suite, concurrency };
+  return {
+    probeOnly,
+    preferBatch,
+    withJudges,
+    judgesConfig,
+    judgeModels,
+    modelFilter,
+    ceilingModel,
+    suite,
+    concurrency,
+    datasetVersion,
+    track,
+  };
 }
 
 function printRoutingTable(roster: ProbedRoster) {
@@ -138,7 +154,19 @@ function createRunRecord(
 }
 
 async function main() {
-  const { probeOnly, preferBatch, withJudges, judgesConfig, judgeModels, modelFilter, ceilingModel, suite, concurrency } = parseArgs();
+  const {
+    probeOnly,
+    preferBatch,
+    withJudges,
+    judgesConfig,
+    judgeModels,
+    modelFilter,
+    ceilingModel,
+    suite,
+    concurrency,
+    datasetVersion,
+    track,
+  } = parseArgs();
   console.log(`Running translation-eval [suite=${suite}, preferBatch=${preferBatch}, concurrency=${concurrency}]...`);
 
   const orKey = process.env.OPENROUTER_API_KEY || '';
@@ -157,7 +185,7 @@ async function main() {
   printRoutingTable(roster);
   if (probeOnly) return;
 
-  const dataset = loadDataset();
+  const dataset = loadDataset(undefined, { datasetVersion, track });
   const resultsDir = path.join(process.cwd(), 'results');
   if (!fs.existsSync(resultsDir)) fs.mkdirSync(resultsDir, { recursive: true });
 

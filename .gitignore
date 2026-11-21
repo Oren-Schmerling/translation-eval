@@ -28,6 +28,8 @@ rustc-ice-*.txt
 data/compiled/*.json
 data/templates/*.csv
 data/hf_export/
+provenance/v2/output/
+provenance/v2/cache/
 results/*
 !results/sweep_stratified_report.md
 *.jsonl

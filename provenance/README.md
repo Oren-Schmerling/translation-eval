@@ -2,40 +2,34 @@
 
 This directory contains construction scripts, dataset templates, and provenance metadata for the published evaluation benchmark.
 
-- **Published Dataset**: [https://huggingface.co/datasets/OrenSchmerling/pragmatic-mt-eval](https://huggingface.co/datasets/OrenSchmerling/pragmatic-mt-eval)
+- **Published Benchmark (v2)**: [https://huggingface.co/datasets/OrenSchmerling/pragmatic-mt-eval](https://huggingface.co/datasets/OrenSchmerling/pragmatic-mt-eval)
+- **v2 Pipeline Directory**: [`provenance/v2/`](v2/)
 
 ---
 
-## Important Notice for End Users
+## v2 Pipeline (Active Primary Benchmark)
 
-This directory is **construction/provenance only**. End users evaluating translation systems do not need to generate or compile the dataset from scratch. Instead, simply fetch the published benchmark directly:
+All code for the v2 benchmark curation, filtering, harvesting, and publication is housed under [`provenance/v2/`](v2/):
+
+- `provenance/v2/build_dataset.py`: Main curation pipeline across Tracks A, B, and C.
+- `provenance/v2/filters.py`: Self-containment, length (6-22 words), subtitle artifact, and script hygiene filters.
+- `provenance/v2/label_harvester.py`: Backward label harvesters for Hebrew, Gujarati, and Vietnamese.
+- `provenance/v2/backtranslate.py`: Target-first backtranslation via OpenRouter with JSONL caching.
+- `provenance/v2/publish_hf.py`: Hugging Face Hub publication client with v1 tag preservation.
+- `provenance/v2/manifest.json`: Full provenance audit trail with exact counts, hashes, and distributions.
+- `provenance/v2/tests/`: Quality verification test suite.
 
 ```bash
-python3 scripts/fetch_dataset.py
+# Run v2 curation pipeline
+python provenance/v2/build_dataset.py
+
+# Verify all v2 quality assertions
+pytest provenance/v2/tests/
 ```
 
 ---
 
-## Construction Pipeline
-
-If you are reconstructing the dataset or modifying the source templates, run the pipeline in this exact sequence:
-
-1. **Generate and validate the curation templates**:
-   ```bash
-   python3 provenance/generate_sheets_template.py
-   ```
-2. **Compile the dataset and infer anchors**:
-   ```bash
-   cargo run -- compile --input-dir data/templates --output data/compiled/eval_dataset.json
-   ```
-3. **Prepare the Hugging Face export package**:
-   ```bash
-   python3 provenance/prepare_hf_dataset.py
-   ```
-
----
-
-## Dataset Breakdown (720 Variants / 36 Base Items)
+## v1 Legacy Pipeline (Historical / Tagged v1.0)
 
 The benchmark expands 36 English base sentences (18 family and relatives, 18 culture and daily life) through a deterministic pragmatic matrix into **720 total evaluation variants**:
 
