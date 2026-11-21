@@ -87,9 +87,7 @@ class Backtranslator:
             return hint_en.strip()
 
         if self.dry_run or not self.api_key:
-            stub = f"Sample casual English translation for: {clean_text[:30]}"
-            self._save_to_cache(key, clean_text, lang, stub)
-            return stub
+            return f"Sample casual English translation {key[:8]} for conversational dialogue."
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",

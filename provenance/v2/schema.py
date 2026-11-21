@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import List, Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class PragmaticProfile(BaseModel):
@@ -36,7 +36,10 @@ class V2Item(BaseModel):
     ] = Field(description="Quarantined evaluation track")
     lang: Literal["he", "gu", "vi"] = Field(description="Target language code")
     source_en: str = Field(description="English source text")
-    reference_target: str = Field(description="Native human-written target reference")
+    reference_target: Optional[str] = Field(
+        default=None,
+        description="Native human-written target reference (nullable strictly for WinoMT diagnostic unit tests)",
+    )
     source_corpus: str = Field(description="Upstream source dataset identifier")
     source_split: str = Field(description="Upstream split name (e.g. train, test, dev)")
     origin_direction: Literal["source_first", "target_first"] = Field(
@@ -59,3 +62,13 @@ class V2Item(BaseModel):
         default="deterministic_exact",
         description="Methodology confidence for the pragmatic label extraction",
     )
+
+    @model_validator(mode="after")
+    def validate_reference_target(self) -> V2Item:
+        if self.reference_target is None:
+            corpus = self.source_corpus.lower()
+            if self.track != "diagnostic_morphology" or ("wino" not in corpus and "mt_gender" not in corpus):
+                raise ValueError(
+                    f"reference_target cannot be null for track '{self.track}' and corpus '{self.source_corpus}'"
+                )
+        return self

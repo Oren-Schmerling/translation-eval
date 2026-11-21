@@ -14,7 +14,7 @@ works offline with no API keys.
 ## Dataset (v2 Benchmark)
 
 - **Published Benchmark**: [https://huggingface.co/datasets/OrenSchmerling/pragmatic-mt-eval](https://huggingface.co/datasets/OrenSchmerling/pragmatic-mt-eval)
-- **Total Benchmark Rows**: 750 (600 casual conversational + 150 diagnostic morphology calibration items).
+- **Total Benchmark Rows**: 950 (600 casual conversational + 100 register contrastive + 250 diagnostic morphology calibration items).
 - **Languages**: Hebrew (`he`), Gujarati (`gu`), Vietnamese (`vi`).
 - **Legacy v1 Access**: Preserved under Git tag `v1.0` and accessible via `--dataset-version=v1`.
 
@@ -25,6 +25,8 @@ python3 scripts/fetch_dataset.py
 
 # Fetch specific track
 python3 scripts/fetch_dataset.py --track=casual_conversational
+python3 scripts/fetch_dataset.py --track=register_contrastive
+python3 scripts/fetch_dataset.py --track=diagnostic_morphology
 
 # Fetch legacy v1 dataset (720 variants)
 python3 scripts/fetch_dataset.py --dataset-version=v1
@@ -38,29 +40,30 @@ python3 scripts/fetch_dataset.py --dataset-version=v1
 | Track | Hebrew (`he`) | Gujarati (`gu`) | Vietnamese (`vi`) | Total Rows |
 |---|---:|---:|---:|---:|
 | `casual_conversational` | 200 | 200 | 200 | **600** |
-| `diagnostic_morphology` | 50 | 50 | 50 | **150** |
-| **Total** | **250** | **250** | **250** | **750** |
+| `register_contrastive` | 0 | 0 | 100 | **100** |
+| `diagnostic_morphology` | 150 | 50 | 50 | **250** |
+| **Total** | **350** | **250** | **350** | **950** |
 
 #### Casual Track Sourcing & Anti-Translationese Blend:
-| Language | Target-First Native Utterances | Parallel Casual Turns | Target-First Share |
-|---|---:|---:|---:|
-| Hebrew (`he`) | 72 | 128 | 36.0% (>= 30% quota met) |
-| Gujarati (`gu`) | 0 | 200 | 0.0% |
-| Vietnamese (`vi`) | 103 | 97 | 51.5% (>= 30% quota met) |
+| Language | Target-First Native Utterances | Parallel Casual Turns | Target-First Share | Primary Authentic Sources |
+|---|---:|---:|---:|---|
+| Hebrew (`he`) | 72 | 128 | 36.0% (>= 30% quota met) | `ivrit-ai/crowd-transcribe-v5` (36.0%) |
+| Gujarati (`gu`) | 20 | 180 | 10.0% | `snorbyte` (turns) + `IN22-Conv` (35.0%) |
+| Vietnamese (`vi`) | 110 | 90 | 55.0% (>= 50% quota met) | `ViDia2Std` (91) + `ViMD` (19) (55.0%) |
 
 #### Gujarati Register Balance (`casual_conversational`):
 | Register Tier | Pronoun Class | Row Count | Percentage |
 |---|---|---:|---:|
-| `intimate` | L1 (`તું`, `તને`, `તારું`) | 62 | 31.0% (>= 25% quota met) |
+| `intimate` | L1 (`તું`, `તને`, `તારું`) | 63 | 31.5% (>= 25% quota met) |
 | `honorific` | L3 (`આપ`, `આપને`, `આપનું`) | 45 | 22.5% (>= 15% quota met) |
-| `polite` | L2 (`તમે`, `તમને`, `તમારું`) | 43 | 21.5% (<= 60% quota met) |
-| *(unmarked)* | No 2nd-person pronoun (IN22-Conv turns) | 50 | 25.0% |
+| `polite` | L2 (`તમે`, `તમને`, `તમારું`) | 23 | 11.5% (<= 60% quota met) |
+| *(unmarked)* | No 2nd-person pronoun (IN22-Conv & snorbyte turns) | 69 | 34.5% |
 
 #### Vietnamese Dialect Balance (`casual_conversational`):
 | Regional Dialect | Row Count | Percentage |
 |---|---:|---:|
-| `vi_south` (Southern) | 64 | 58.7% (within 55%–65% target) |
-| `vi_north` (Northern) | 45 | 41.3% (within 35%–45% target) |
+| `vi_south` (Southern) | 68 | 59.6% (within 55%–65% target) |
+| `vi_north` (Northern) | 46 | 40.4% (within 35%–45% target) |
 
 ---
 
@@ -451,9 +454,12 @@ Labels are harvested deterministically backward from native target gold strings 
 | `sentence-transformers/parallel-sentences-opensubtitles` | `he`, `vi` | `train` | Open / CC | Parallel casual dialogue |
 | `ivrit-ai/crowd-transcribe-v5` | `he` | `train` | Open Spoken (CC) | Spontaneous Israeli spoken Hebrew transcripts |
 | `ai4bharat/IN22-Conv` | `gu` | `test` | CC-BY-4.0 | Everyday interpersonal conversation turns |
+| `snorbyte/indic-audio-natural-conversations-sample` | `gu` | `samples` | Research | Spoken conversational turns with speaker gender |
 | `Helsinki-NLP/opus-100` | `gu`, `vi` | `train` | CC-BY-SA-4.0 | Natural parallel Gujarati & Vietnamese dialogue |
 | `Biu3010/ViDia2Std` | `vi` | `train`, `dev`, `test` | MIT / Academic | Native regional dialect target references |
 | `nguyendv02/ViMD_Dataset` | `vi` | `test` | Open Academic | Regional speech metadata & transcripts |
+| `amazon-science/contrastive-controlled-mt` | `vi` | `test` | Apache-2.0 | Formality control contrastive pairs with annotations |
+| `gabrielStanovsky/mt_gender` | `he` | `aggregates` | MIT / Academic | WinoMT coreference gender diagnostic suite |
 | `Helsinki-NLP/tatoeba` | `he`, `gu`, `vi` | `train` | CC-BY-2.0 | Isolated textbook baseline unit tests |
 
 ### 6. Reproducibility

@@ -142,49 +142,58 @@ def load_vi_vimd(limit: int = 30) -> Tuple[List[CandidateRow], dict]:
 
     try:
         import pyarrow.parquet as pq
-        fpath = hf_hub_download(
-            "nguyendv02/ViMD_Dataset",
-            "data/test-00000-of-00014.parquet",
-            repo_type="dataset",
-            token=token,
-        )
-        schema = pq.read_schema(fpath)
-        meta_cols = [c for c in schema.names if c != "audio"]
-        table = pq.read_table(fpath, columns=meta_cols)
-        df = table.to_pandas()
+        from huggingface_hub import HfFileSystem
+
+        fs = HfFileSystem(token=token)
+        shards = sorted(fs.glob("datasets/nguyendv02/ViMD_Dataset/data/test-*.parquet"))
+        if not shards:
+            manifest_log["status"] = "skipped: no test parquet shards found"
+            return [], manifest_log
 
         max_south = int(limit * 0.6)
         max_north = limit - max_south
         south_rows: List[CandidateRow] = []
         north_rows: List[CandidateRow] = []
 
-        for _, r in df.iterrows():
-            reg = str(r.get("region") or "").strip()
-            txt = str(r.get("text") or "").strip()
-            g = str(r.get("gender") or "").strip()
-            if not txt or reg not in ("North", "South"):
-                continue
+        for fpath in shards:
+            with fs.open(fpath, "rb") as f:
+                pf = pq.ParquetFile(f)
+                meta_cols = [c for c in pf.schema_arrow.names if c != "audio"]
+                table = pf.read(columns=meta_cols)
+                df = table.to_pandas()
 
-            gender_label = "male" if g == "1" else "female" if g == "2" else None
-            region_label = "vi_north" if reg == "North" else "vi_south"
+            for _, r in df.iterrows():
+                reg = str(r.get("region") or "").strip()
+                txt = str(r.get("text") or "").strip()
+                g = str(r.get("gender") or "").strip()
+                if not txt or reg not in ("North", "South"):
+                    continue
+                words = txt.split()
+                if not (5 <= len(words) <= 18):
+                    continue
 
-            row = CandidateRow(
-                source_en=None,
-                reference_target=txt,
-                source_corpus="nguyendv02/ViMD_Dataset",
-                source_split="test",
-                origin_direction="target_first",
-                metadata={
-                    "region": region_label,
-                    "gender": gender_label,
-                },
-            )
+                gender_label = "male" if g == "1" else "female" if g == "2" else None
+                region_label = "vi_north" if reg == "North" else "vi_south"
 
-            if region_label == "vi_south" and len(south_rows) < max_south:
-                south_rows.append(row)
-            elif region_label == "vi_north" and len(north_rows) < max_north:
-                north_rows.append(row)
+                row = CandidateRow(
+                    source_en=None,
+                    reference_target=txt,
+                    source_corpus="nguyendv02/ViMD_Dataset",
+                    source_split="test",
+                    origin_direction="target_first",
+                    metadata={
+                        "region": region_label,
+                        "gender": gender_label,
+                    },
+                )
 
+                if region_label == "vi_south" and len(south_rows) < max_south:
+                    south_rows.append(row)
+                elif region_label == "vi_north" and len(north_rows) < max_north:
+                    north_rows.append(row)
+
+                if len(south_rows) >= max_south and len(north_rows) >= max_north:
+                    break
             if len(south_rows) >= max_south and len(north_rows) >= max_north:
                 break
 

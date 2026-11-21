@@ -13,18 +13,20 @@
       "status": "loaded 175 utterances"
     },
     "he_opensubtitles": "sentence-transformers/parallel-sentences-opensubtitles en-he",
+    "gu_snorbyte": {
+      "source": "snorbyte/indic-audio-natural-conversations-sample",
+      "method": "pyarrow_metadata_only",
+      "status": "loaded 50 natural conversational turns"
+    },
     "gu_in22": {
       "source": "ai4bharat/IN22-Conv",
       "split": "test",
-      "status": "loaded 150 items"
+      "status": "loaded 150 items",
+      "config": "default"
     },
     "gu_baatcheet": {
       "source": "HimangY/BaatCheet-Corpus",
       "status": "skipped: no gu config"
-    },
-    "gu_snorbyte": {
-      "source": "snorbyte/indic-audio-natural-conversations-sample",
-      "status": "accessible"
     },
     "gu_opus100": {
       "source": "Helsinki-NLP/opus-100",
@@ -34,29 +36,31 @@
     "vi_vidia2std": {
       "source": "Biu3010/ViDia2Std",
       "method": "direct_csv_download",
-      "status": "loaded 200 items (South=120, North=80)"
+      "status": "loaded 220 items (South=132, North=88)"
     },
     "vi_vimd": {
       "source": "nguyendv02/ViMD_Dataset",
       "method": "parquet_metadata_only",
-      "status": "loaded 12 items (South=0, North=12)"
+      "status": "loaded 19 items (South=12, North=7)"
     },
     "vi_opensubtitles": "sentence-transformers/parallel-sentences-opensubtitles en-vi",
-    "facebook_cocoa_mt": {
-      "source": "facebook/CoCoA-MT",
+    "amazon_science_cocoa_mt": {
+      "source": "amazon-science/contrastive-controlled-mt",
       "track": "register_contrastive",
-      "supported_pairs": [],
-      "missing_pairs": [
-        "he",
-        "gu",
+      "supported_pairs": [
         "vi"
       ],
-      "status": "skipped: not accessible on Hub (RepositoryNotFoundError)"
+      "missing_pairs": [
+        "he",
+        "gu"
+      ],
+      "note": "he and gu unsupported upstream in CoCoA-MT",
+      "status": "loaded 100 contrastive items (50 pairs) for vi"
     },
-    "stanovsky_wino_mt": {
-      "source": "stanovsky/wino_mt",
+    "wino_mt": {
+      "source": "gabrielStanovsky/mt_gender",
       "track": "diagnostic_morphology",
-      "status": "skipped: not accessible on Hub (RepositoryNotFoundError)"
+      "status": "loaded 100 items (pro=50, anti=50)"
     },
     "tatoeba_he": {
       "source": "Helsinki-NLP/tatoeba en-he",
@@ -76,12 +80,11 @@
   },
   "stages": {
     "he_casual": {
-      "candidates_seen": 402,
+      "candidates_seen": 383,
       "accepted": 200,
       "rejected": {
-        "duplicate_source_en": 19,
-        "subtitle_artifacts": 15,
         "word_count_out_of_bounds": 137,
+        "subtitle_artifacts": 15,
         "unresolved_fragment_opener": 1,
         "script_hygiene_failed": 2,
         "target_subtitle_artifacts": 28
@@ -91,21 +94,31 @@
       "candidates_seen": 236,
       "accepted": 200,
       "rejected": {
-        "word_count_out_of_bounds": 20,
-        "script_hygiene_failed": 2,
-        "duplicate_source_en": 14
+        "script_hygiene_failed": 3,
+        "word_count_out_of_bounds": 21,
+        "duplicate_source_en": 12
       }
     },
     "vi_casual": {
-      "candidates_seen": 368,
+      "candidates_seen": 356,
       "accepted": 200,
       "rejected": {
-        "word_count_out_of_bounds": 115,
-        "subtitle_artifacts": 31,
+        "word_count_out_of_bounds": 104,
+        "subtitle_artifacts": 30,
         "target_subtitle_artifacts": 20,
         "empty_text": 1,
         "unresolved_fragment_opener": 1
       }
+    },
+    "register_contrastive_vi": {
+      "candidates_seen": 100,
+      "accepted": 100,
+      "rejected": {}
+    },
+    "wino_mt_he": {
+      "candidates_seen": 100,
+      "accepted": 100,
+      "rejected": {}
     },
     "tatoeba_he": {
       "candidates_seen": 190,
@@ -137,50 +150,52 @@
   "distributions": {
     "by_track": {
       "casual_conversational": 600,
-      "diagnostic_morphology": 150
+      "register_contrastive": 100,
+      "diagnostic_morphology": 250
     },
     "by_lang": {
-      "he": 250,
+      "he": 350,
       "gu": 250,
-      "vi": 250
+      "vi": 350
     },
     "by_origin_direction": {
-      "source_first": 575,
-      "target_first": 175
+      "target_first": 202,
+      "source_first": 748
     },
     "casual_by_lang_origin": {
       "source_first": {
-        "gu": 200,
         "he": 128,
-        "vi": 97
+        "gu": 180,
+        "vi": 90
       },
       "target_first": {
-        "gu": 0,
         "he": 72,
-        "vi": 103
+        "gu": 20,
+        "vi": 110
       }
     },
     "gu_casual_registers": {
-      "intimate": 62,
+      "unmarked": 69,
+      "intimate": 63,
       "honorific": 45,
-      "polite": 43
+      "polite": 23
     },
     "vi_casual_dialects": {
-      "vi_south": 64,
-      "vi_north": 45
+      "vi_south": 68,
+      "vi_north": 46
     }
   },
   "files": {
     "dataset_v2.jsonl": {
       "path": "/home/oren/Documents/Code/translation-eval/provenance/v2/output/dataset_v2.jsonl",
-      "sha256": "c6adf910a340181744f214cbce5395ec55c0bae94c6168788eb8c55c2638e074",
-      "count": 750
+      "sha256": "71447af9968fe6a21738329480f53a92964dd3176ffea5250059d36c8bf4306b",
+      "count": 950
     },
     "dataset_v2.parquet": {
       "path": "/home/oren/Documents/Code/translation-eval/provenance/v2/output/dataset_v2.parquet",
-      "sha256": "fcfaa52913f1e42887b2cb0fda688854311f5f21ae4aaa62f7e75512edd1aa65",
-      "count": 750
+      "sha256": "d4f6642b4353b4b489e755aa29c5136b3f3828441f248a7bb4e567a9d3492ced",
+      "count": 950
     }
   },
-  "total_items": 750
+  "total_items": 950
 }

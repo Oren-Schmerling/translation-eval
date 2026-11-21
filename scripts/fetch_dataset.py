@@ -26,10 +26,11 @@ COMPILED_DIR = REPO_ROOT / "data" / "compiled"
 DEFAULT_V2_OUTPUT = COMPILED_DIR / "dataset_v2.jsonl"
 DEFAULT_JSON_OUTPUT = COMPILED_DIR / "eval_dataset.json"
 
-EXPECTED_V2_TOTAL = 750
+EXPECTED_V2_TOTAL = 950
 EXPECTED_V2_TRACKS = {
     "casual_conversational": 600,
-    "diagnostic_morphology": 150,
+    "register_contrastive": 100,
+    "diagnostic_morphology": 250,
 }
 EXPECTED_V1_TOTAL = 720
 EXPECTED_V1_LANG_COUNTS = {"he": 192, "gu": 288, "vi": 240}

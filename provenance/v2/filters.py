@@ -128,33 +128,38 @@ class Deduplicator:
 
 def validate_candidate(
     source_en: str,
-    reference_target: str,
+    reference_target: Optional[str],
     lang: str,
     deduplicator: Optional[Deduplicator] = None,
+    allow_null_target: bool = False,
+    allow_duplicate_en: bool = False,
 ) -> Tuple[bool, Optional[str]]:
     """Validate a candidate pair against all hygiene and self-containment rules."""
     clean_en = normalize_source_en(source_en)
-    clean_target = reference_target.strip()
+    clean_target = reference_target.strip() if reference_target is not None else None
 
-    if not clean_en or not clean_target:
+    if not clean_en or (clean_target is None and not allow_null_target):
         return False, "empty_text"
 
     if has_subtitle_artifacts(source_en):
         return False, "subtitle_artifacts"
 
-    if has_subtitle_artifacts(clean_target):
+    if clean_target is not None and has_subtitle_artifacts(clean_target):
         return False, "target_subtitle_artifacts"
 
-    if not check_word_count(clean_en, 6, 22):
+    # WinoMT and contrastive sentences can be slightly longer (up to 30 words)
+    max_words = 30 if (allow_null_target or allow_duplicate_en) else 22
+    min_words = 4 if (allow_null_target or allow_duplicate_en) else 6
+    if not check_word_count(clean_en, min_words, max_words):
         return False, "word_count_out_of_bounds"
 
     if is_unresolved_fragment(clean_en):
         return False, "unresolved_fragment_opener"
 
-    if not check_script_hygiene(clean_target, lang, 0.70):
+    if clean_target is not None and not check_script_hygiene(clean_target, lang, 0.70):
         return False, "script_hygiene_failed"
 
-    if deduplicator is not None and deduplicator.is_duplicate(clean_en):
+    if deduplicator is not None and not allow_duplicate_en and deduplicator.is_duplicate(clean_en):
         return False, "duplicate_source_en"
 
     return True, None

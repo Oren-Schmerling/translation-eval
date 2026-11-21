@@ -50,9 +50,9 @@ To ensure diagnostic tests never pollute conversational scores, the dataset enfo
 
 | Track | Target Count | Description | Primary Upstream Corpora |
 |---|---:|---|---|
-| `casual_conversational` | 600 (200/lang) | Primary benchmark track measuring everyday colloquial speech, interpersonal register, and regional dialects. | OpenSubtitles, Ivrit-AI Spoken Hebrew, Biu3010/ViDia2Std, ViMD, OPUS-100 |
-| `register_contrastive` | Optional / Diagnostic | Paired contrastive tests isolating formal vs. informal register shifts. | CoCoA-MT (probed dynamically) |
-| `diagnostic_morphology` | 150 (50/lang) | Quarantined textbook unit tests used as calibration baselines; never mixed into conversational metrics. | Helsinki-NLP/Tatoeba baselines |
+| `casual_conversational` | 600 (200/lang) | Primary benchmark track measuring everyday colloquial speech, interpersonal register, and regional dialects. | OpenSubtitles, Ivrit-AI Spoken Hebrew, Biu3010/ViDia2Std, ViMD, IN22-Conv, OPUS-100, snorbyte |
+| `register_contrastive` | 100 (50 pairs) | Contrastive evaluation track isolating formal vs. informal register pairs with phrase-level target anchors. | amazon-science/contrastive-controlled-mt (IWSLT2023 en-vi) |
+| `diagnostic_morphology` | 250 | Quarantined textbook baselines and gender unit tests; never mixed into conversational metrics. | WinoMT (en-he), Helsinki-NLP/Tatoeba baselines |
 
 ---
 
@@ -94,30 +94,31 @@ All pragmatic labels are harvested **deterministically backward from human-writt
 *Generated directly from `provenance/v2/manifest.json`.*
 
 ### Overall Item Counts:
-- **Total Benchmark Rows**: 750
+- **Total Benchmark Rows**: 950
 - **Casual Conversational Track**: 600 (200 `he`, 200 `gu`, 200 `vi`)
-- **Diagnostic Morphology Track**: 150 (50 `he`, 50 `gu`, 50 `vi`)
+- **Register Contrastive Track**: 100 (50 formal/informal contrastive pairs for `vi`)
+- **Diagnostic Morphology Track**: 250 (100 WinoMT `he`, 50 Tatoeba `he`, 50 Tatoeba `gu`, 50 Tatoeba `vi`)
 
 ### Casual Track Origin Breakdown:
-| Language | Target-First (Native Utterances) | Source-First (Parallel Casual) | Target-First Share |
-|---|---:|---:|---:|
-| Hebrew (`he`) | 72 | 128 | 36.0% (>= 30% quota met) |
-| Gujarati (`gu`) | 0 | 200 | 0.0% |
-| Vietnamese (`vi`) | 103 | 97 | 51.5% (>= 30% quota met) |
+| Language | Target-First (Native Utterances) | Source-First (Parallel Casual) | Target-First Share | Primary Authentic Sources |
+|---|---:|---:|---:|---|
+| Hebrew (`he`) | 72 | 128 | 36.0% (>= 30% quota met) | `ivrit-ai/crowd-transcribe-v5` (36.0%) |
+| Gujarati (`gu`) | 20 | 180 | 10.0% | `snorbyte` (turns) + `IN22-Conv` (35.0%) |
+| Vietnamese (`vi`) | 110 | 90 | 55.0% (>= 50% quota met) | `ViDia2Std` (91) + `ViMD` (19) (55.0%) |
 
 ### Gujarati Register Balance (`casual_conversational`):
 | Register Tier | Pronoun Class | Row Count | Percentage |
 |---|---|---:|---:|
-| `intimate` | L1 (`તું`, `તને`, `તારું`) | 62 | 31.0% (>= 25% quota met) |
+| `intimate` | L1 (`તું`, `તને`, `તારું`) | 63 | 31.5% (>= 25% quota met) |
 | `honorific` | L3 (`આપ`, `આપને`, `આપનું`) | 45 | 22.5% (>= 15% quota met) |
-| `polite` | L2 (`તમે`, `તમને`, `તમારું`) | 43 | 21.5% (<= 60% quota met) |
-| *(unmarked)* | No 2nd-person pronoun (IN22-Conv turns) | 50 | 25.0% |
+| `polite` | L2 (`તમે`, `તમને`, `તમારું`) | 23 | 11.5% (<= 60% quota met) |
+| *(unmarked)* | No 2nd-person pronoun (IN22-Conv & snorbyte turns) | 69 | 34.5% |
 
 ### Vietnamese Dialect Balance (`casual_conversational`):
 | Regional Dialect | Row Count | Percentage |
 |---|---:|---:|
-| `vi_south` (Southern) | 64 | 58.7% (within 55%–65% target) |
-| `vi_north` (Northern) | 45 | 41.3% (within 35%–45% target) |
+| `vi_south` (Southern) | 68 | 59.6% (within 55%–65% target) |
+| `vi_north` (Northern) | 46 | 40.4% (within 35%–45% target) |
 
 ---
 
@@ -128,9 +129,12 @@ All pragmatic labels are harvested **deterministically backward from human-writt
 | `sentence-transformers/parallel-sentences-opensubtitles` | `he`, `vi` | `train` | Open / CC | Parallel casual dialogue |
 | `ivrit-ai/crowd-transcribe-v5` | `he` | `train` | Open Spoken (CC) | Spontaneous Israeli spoken Hebrew transcripts |
 | `ai4bharat/IN22-Conv` | `gu` | `test` | CC-BY-4.0 | Everyday interpersonal conversation turns |
+| `snorbyte/indic-audio-natural-conversations-sample` | `gu` | `samples` | Research | Spoken conversational turns with speaker gender |
 | `Helsinki-NLP/opus-100` | `gu`, `vi` | `train` | CC-BY-SA-4.0 | Natural parallel Gujarati & Vietnamese dialogue |
 | `Biu3010/ViDia2Std` | `vi` | `train`, `dev`, `test` | MIT / Academic | Native regional dialect target references |
 | `nguyendv02/ViMD_Dataset` | `vi` | `test` | Open Academic | Regional speech metadata & transcripts |
+| `amazon-science/contrastive-controlled-mt` | `vi` | `test` | Apache-2.0 | Formality control contrastive pairs with annotations |
+| `gabrielStanovsky/mt_gender` | `he` | `aggregates` | MIT / Academic | WinoMT coreference gender diagnostic suite |
 | `Helsinki-NLP/tatoeba` | `he`, `gu`, `vi` | `train` | CC-BY-2.0 | Isolated textbook baseline unit tests |
 
 ---

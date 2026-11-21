@@ -269,9 +269,31 @@ def harvest_vietnamese_labels(
 
 
 def harvest_pragmatic_labels(
-    target_text: str, lang: str, metadata: Optional[dict] = None
+    target_text: Optional[str], lang: str, metadata: Optional[dict] = None
 ) -> Tuple[PragmaticProfile, List[str], List[str]]:
     """Main dispatch function for deterministic backward label harvesting."""
+    if target_text is None:
+        profile = PragmaticProfile()
+        if metadata and "gender" in metadata:
+            g = str(metadata["gender"]).lower()
+            if g in ("male", "m"):
+                profile.listener_gender = "male"
+            elif g in ("female", "f"):
+                profile.listener_gender = "female"
+        return profile, [], []
+
+    # Check if contrastive metadata provides ground truth anchors
+    if metadata and "contrastive_anchors" in metadata:
+        profile = PragmaticProfile()
+        formality = str(metadata.get("formality") or "").lower()
+        if formality == "formal":
+            profile.register_tier = "honorific"
+        elif formality == "informal":
+            profile.register_tier = "polite"
+        clean_req = [r for r in metadata.get("contrastive_anchors", []) if r in target_text]
+        clean_forb = [f for f in metadata.get("contrastive_forbidden", []) if f not in target_text]
+        return profile, clean_req, clean_forb
+
     if lang == "he":
         profile, req, forb = harvest_hebrew_labels(target_text, metadata)
     elif lang == "gu":
